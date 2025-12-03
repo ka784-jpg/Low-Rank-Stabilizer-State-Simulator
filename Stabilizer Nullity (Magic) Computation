@@ -1,0 +1,1326 @@
+using LinearAlgebra
+using Random
+using CSV, DataFrames
+using DelimitedFiles
+using Dates
+using Statistics
+using StatsBase
+
+t1 = now()
+
+function levi_civita(i::Int, j::Int)
+    if i == j || i < 1 || j < 1 || i > 3 || j > 3
+        return 0
+    elseif (i == 1 && j == 2) || (i == 2 && j == 3) || (i == 3 && j == 1)
+        return 1
+    else
+        return -1
+    end
+end
+
+function to_int(bs)
+    if [bs[1], bs[2]] == [0, 0]
+        return 0
+    elseif [bs[1], bs[2]] == [1, 0]
+        return 1
+    elseif [bs[1], bs[2]] == [1, 1]
+        return 2
+    elseif [bs[1], bs[2]] == [0, 1]
+        return 3
+    end
+end
+
+function check_c(bs1, bs2)
+    L = Int64(length(bs1) ÷ 2)
+    phase1 = 1
+    phase2 = 1
+    for q = 1:L
+        bsa = [bs1[q], bs1[q+L]]
+        bsb = [bs2[q], bs2[q+L]]
+        if levi_civita(to_int(bsa), to_int(bsb)) != 0
+            phase1 *= im * levi_civita(to_int(bsa), to_int(bsb))
+            phase2 *= im * levi_civita(to_int(bsb), to_int(bsa))
+        end
+    end
+    if phase1 == phase2
+        return 0
+    else
+        return 2
+    end
+end
+
+e = exp(1)
+
+I = [1 0; 0 1]
+s_x = [0 1; 1 0]
+s_y = [0 -im; im 0]
+s_z = [1 0; 0 -1]
+
+rx_2 = (sqrt(2)/2) * (I - 1im .* s_x)
+rx_m2 = (sqrt(2)/2) * (I + 1im .* s_x)
+ry_2 = (sqrt(2)/2) * (I - 1im .* s_y)
+ry_m2 = (sqrt(2)/2) * (I + 1im .* s_y)
+
+ry_2 = (sqrt(2)/2) * (I - 1im .* s_y)
+h_1 = s_x * ry_2
+
+CZ = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 -1]
+T = [1 0; 0 e^(im * pi / 4)]
+
+function tob10(vecs)
+    parse(Int, join(vecs); base = 2)
+end
+
+function splitleft(state, dimstate)
+    statenew = zeros(dimstate)
+    for i in 1:dimstate
+        statenew[i] = Int64(state[i])
+    end
+    return round.(Int, statenew)
+end
+
+function splitright(state, dimstate)
+    statenew = zeros(length(state) - dimstate)
+    for i in dimstate+1:length(state)
+        statenew[i-dimstate] = Int64(state[i])
+    end
+    return round.(Int, statenew)
+end
+
+function splitarb(state, left, right)
+    statenew = zeros(right - left + 1)
+    for i in left:right
+        statenew[i-left+1] = Int64(state[i])
+    end
+    return round.(Int, statenew)
+end
+
+function splicee(state, left, right)
+    statevo = zeros(2)
+    statevo[1] = state[left]
+    statevo[2] = state[right]
+    return round.(Int, statevo)
+end
+
+function splicer(state, left, right)
+    statevo = zeros(length(state) - 2)
+    jp = 0
+    for i = 1:left-1
+        jp += 1
+        statevo[jp] = state[i]
+    end
+    for i = left+1:right-1
+        jp += 1
+        statevo[jp] = state[i]
+    end
+    for i = right+1:length(state)
+        jp += 1
+        statevo[jp] = state[i]
+    end
+    return round.(Int, statevo)
+end
+
+function binaryvec(n)
+    ket0 = string(n, base = 2, pad = nspin)
+    for k in range(1, length(ket0))
+        kettemp[k] = parse(Int64, ket0[k:k])
+    end
+    return kettemp
+end
+
+function proj_down!(statein, q)
+    L = nspin
+    i = L - q + 1
+    for nL = 0:(2^(L-i)-1), nR = 0:(2^(i-1)-1)
+        n = nR + 2^i * nL + 2^(i-1) + 1
+        statein[n] = 0
+    end
+    statein .= statein / norm(statein)
+end
+
+function proj_up!(statein, q)
+    L = nspin
+    i = L - q + 1
+    for nL = 0:(2^(L-i)-1), nR = 0:(2^(i-1)-1)
+        n = nR + 2^i * nL + 1
+        statein[n] = 0
+    end
+    statein .= statein / norm(statein)
+end
+
+function one_qubit_gate!(statein, U, sp)
+    i = L - sp + 1
+    psi_temp = zeros(ComplexF64, 2)
+    for j = 1:2^(L-i), k = 1+2^i*(j-1):(2^i)*(j-1)+2^(i-1)
+        ind1 = k
+        ind2 = k + 2^(i-1)
+        psi_temp[1] = statein[ind1]
+        psi_temp[2] = statein[ind2]
+        psi_temp = U * psi_temp
+        statein[ind1] = psi_temp[1]
+        statein[ind2] = psi_temp[2]
+    end
+    statein .= statein / norm(statein)
+end
+
+function two_qubit_gate!(statein, U, i)
+    psi_temp = zeros(ComplexF64, 4)
+    if i != nspin
+        for nL = 0:2^(L-1-i)-1, nR = 0:2^(i-1)-1
+            ind1 = nR + nL * 2^(i+1) + 1
+            ind2 = nR + nL * 2^(i+1) + 2^(i-1) + 1
+            ind3 = nR + nL * 2^(i+1) + 2^i + 1
+            ind4 = nR + nL * 2^(i+1) + 2^i + 2^(i-1) + 1
+            psi_temp[1] = statein[ind1]
+            psi_temp[2] = statein[ind2]
+            psi_temp[3] = statein[ind3]
+            psi_temp[4] = statein[ind4]
+            psi_temp = U * psi_temp
+            statein[ind1] = psi_temp[1]
+            statein[ind2] = psi_temp[2]
+            statein[ind3] = psi_temp[3]
+            statein[ind4] = psi_temp[4]
+        end
+    else
+        for nM = 0:4:2^(L-1)-1, nR = 0:1
+            ind1 = nM + nR + 1
+            ind2 = nM + nR + 2 + 1
+            ind3 = nM + nR + 2^(L-1) + 1
+            ind4 = nM + nR + 2^(L-1) + 2 + 1
+            psi_temp[1] = statein[ind1]
+            psi_temp[2] = statein[ind2]
+            psi_temp[3] = statein[ind3]
+            psi_temp[4] = statein[ind4]
+            psi_temp = U * psi_temp
+            statein[ind1] = psi_temp[1]
+            statein[ind2] = psi_temp[2]
+            statein[ind3] = psi_temp[3]
+            statein[ind4] = psi_temp[4]
+        end
+    end
+    statein .= statein / norm(statein)
+end
+
+function CZ_gate!(state, lspin, rspin)
+    nl = lspin
+    nr = rspin
+    if nl > nr
+        nl, nr = nr, nl
+    end
+    dimen = length(state)
+    A = zeros(ComplexF64, 4, 2^(nspin-2))
+    f = zeros(Int64, 4, 2^(nspin-2))
+    for j in 1:dimen
+        l = tob10(splicee(ket[j], nl, nr))
+        m = tob10(splicer(ket[j], nl, nr))
+        A[l+1, m+1] = state[j]
+        f[l+1, m+1] = j
+    end
+    A = CZ * A
+    for i = 1:size(A)[1]
+        for j = 1:size(A)[2]
+            state[f[i, j]] = A[i, j]
+        end
+    end
+    state .= state / norm(state)
+end
+
+function swap_row!(A, row1, row2)
+    A[row1, :], A[row2, :] = A[row2, :], A[row1, :]
+end
+
+function get_other_elements(matrix, row, col)
+    row_elements = matrix[row, :]
+    if col == 1
+        other_elements = row_elements[2:end]
+    elseif col == size(matrix, 2)
+        other_elements = row_elements[1:end-1]
+    else
+        other_elements = vcat(row_elements[1:col-1], row_elements[col+1:end])
+    end
+    return other_elements
+end
+
+function check_zeros(A, row, col)
+    if get_other_elements(A, row, col) == falses(1, size(A)[2]-1)
+        return Bool(0)
+    end
+end
+
+function gaussian_elimination(A::BitMatrix)
+    m, n = size(A)
+    row, col = 1, 1
+    while row <= m && col <= n
+        pivot_row = argmax(abs.(A[row:end, col])) + row - 1
+        if pivot_row != row
+            A[row, :], A[pivot_row, :] = A[pivot_row, :], A[row, :]
+        end
+        if A[row, col] != 0
+            A[row, :] ./= A[row, col]
+            for i = 1:m
+                if i != row
+                    A[i, :] .-= A[i, col] * A[row, :]
+                end
+            end
+        end
+        row += 1
+        col += 1
+    end
+    return A
+end
+
+function gaussian_elimination_bit!(A)
+    m, n = size(A)
+    row, col = 1, 1
+    while row <= m && col <= n
+        pivot_row = findfirst(A[row:end, col] .!= 0) + row - 1
+        if pivot_row == 0
+            col += 1
+            continue
+        end
+        if pivot_row != row
+            A[row, :], A[pivot_row, :] = A[pivot_row, :], A[row, :]
+        end
+        for i = 1:m
+            if i != row && A[i, col] != 0
+                A[i, :] .⊻= A[row, :]
+            end
+        end
+        row += 1
+        col += 1
+    end
+end
+
+function gaussian_elimination(A::BitMatrix)
+    m, n = size(A)
+    row, col = 1, 1
+    while row <= m && col <= n
+        pivot_row = argmax(abs.(A[row:end, col])) + row - 1
+        if pivot_row != row
+            A[row, :], A[pivot_row, :] = A[pivot_row, :], A[row, :]
+        end
+        if A[row, col]
+            for i = 1:m
+                if i != row && A[i, col]
+                    A[i, :] .⊻= A[row, :]
+                end
+            end
+        end
+        row += 1
+        col += 1
+    end
+    return A
+end
+
+function rowsum!(h::Int, i::Int, tableau::BitMatrix, L::Int)
+    phaseSum = 2 * tableau[h, 2L+1] + 2 * tableau[i, 2L+1]
+    for j in 1:L
+        x1 = tableau[i, j]
+        z1 = tableau[i, j+L]
+        x2 = tableau[h, j]
+        z2 = tableau[h, j+L]
+        phaseSum += g(x1, z1, x2, z2)
+    end
+    if phaseSum % 4 == 0
+        tableau[h, 2L+1] = 0
+    elseif phaseSum % 4 == 2
+        tableau[h, 2L+1] = 1
+    end
+    for j in 1:L
+        tableau[h, j] = (tableau[i, j] + tableau[h, j]) % 2
+        tableau[h, j+L] = (tableau[i, j+L] + tableau[h, j+L]) % 2
+    end
+end
+
+function g(x1::Bool, z1::Bool, x2::Bool, z2::Bool)
+    if x1 == z1 == 0
+        return 0
+    elseif x1 == z1 == 1
+        return z2 - x2
+    elseif x1 == 1 && z1 == 0
+        return z2 * (2 * x2 - 1)
+    else
+        return x2 * (1 - 2 * z2)
+    end
+end
+
+function flip_vertical!(matrix)
+    flipped_matrix = copy(matrix)
+    n = size(matrix, 1)
+    m = size(matrix, 2)
+    for i in 1:n
+        for j in 1:div(m, 2)
+            flipped_matrix[i, j], flipped_matrix[i, m-j+1] = flipped_matrix[i, m-j+1], flipped_matrix[i, j]
+        end
+    end
+    matrix .= flipped_matrix
+end
+
+function Y_2!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, L + bitA] ⊻ tableau[g, bitA]
+        tempBit = tableau[g, bitA]
+        tableau[g, bitA] = tableau[g, L + bitA]
+        tableau[g, L + bitA] = tempBit
+    end
+end
+
+function mY_2!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, L + bitA] ⊻ tableau[g, bitA + L]
+        tempBit = tableau[g, bitA]
+        tableau[g, bitA] = tableau[g, L + bitA]
+        tableau[g, L + bitA] = tempBit
+    end
+end
+
+function measure_Z(bitA::Int, tableauc::BitMatrix, L::Int)
+    tableau = copy(tableauc)
+    p = 0
+    for g in (L+1):2L
+        if tableau[g, bitA] == 1
+            p = g
+            break
+        end
+    end
+    if p > 0
+        for g in 1:2L
+            if tableau[g, bitA] == 1 && p != g
+                rowsum!(g, p, tableau, L)
+            end
+        end
+        for cn in 1:(2L+1)
+            tableau[p-L, cn] = tableau[p, cn]
+            tableau[p, cn] = 0
+        end
+        tableau[p, 2L+1] = rand([0, 1])
+        tableau[p, bitA + L] = 1
+        return tableau[p, 2L+1]
+    else
+        for cn in 1:(2L+1)
+            tableau[2L+1, cn] = 0
+        end
+        for ds in 1:L
+            if tableau[ds, bitA] == 1
+                rowsum!(2L+1, ds+L, tableau, L)
+            end
+        end
+        return tableau[2L+1, 2L+1]
+    end
+end
+
+function Hadamard!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, bitA + L]
+        tempBit = tableau[g, bitA]
+        tableau[g, bitA] = tableau[g, bitA + L]
+        tableau[g, bitA + L] = tempBit
+    end
+end
+
+function measure_X(bitA::Int, tableauc::BitMatrix, L::Int)
+    tableau = copy(tableauc)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, bitA + L]
+        tempBit = tableau[g, bitA]
+        tableau[g, bitA] = tableau[g, bitA + L]
+        tableau[g, bitA + L] = tempBit
+    end
+    return measure_Z(bitA, tableau, L)
+end
+
+function measure_Y(bitA::Int, tableauc::BitMatrix, L::Int)
+    tableau = copy(tableauc)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, L + bitA] ⊻ tableau[g, L + bitA]
+        tableau[g, bitA] = tableau[g, bitA] ⊻ tableau[g, L + bitA]
+    end
+    return measure_Z(bitA, tableau, L)
+end
+
+function Measure!(bitA::Int, tableau::BitMatrix, L::Int, z_outcomes, t::Int64)
+    p = 0
+    for g in (L+1):2L
+        if tableau[g, bitA] == 1
+            p = g
+            break
+        end
+    end
+    if p > 0
+        for g in 1:2L
+            if tableau[g, bitA] == 1 && p != g
+                rowsum!(g, p, tableau, L)
+            end
+        end
+        for cn in 1:(2L+1)
+            tableau[p-L, cn] = tableau[p, cn]
+            tableau[p, cn] = 0
+        end
+        tableau[p, bitA + L] = 1
+        tableau[p, 2L+1] = rand([0, 1])
+        z_outcomes[t, bitA] = tableau[p, 2L+1]
+        if tableau[p, 2L + 1] == 0
+            Y_2!(bitA, tableau, L)
+        elseif tableau[p, 2L + 1] == 1
+            mY_2!(bitA, tableau, L)
+        end
+        return tableau[p, 2L+1]
+    else
+        for cn in 1:(2L+1)
+            tableau[2L+1, cn] = 0
+        end
+        for ds in 1:L
+            if tableau[ds, bitA] == 1
+                rowsum!(2L+1, ds+L, tableau, L)
+            end
+        end
+        z_outcomes[t, bitA] = tableau[2L+1, 2L+1]
+        if tableau[2L+1, 2L+1] == 0
+            Y_2!(bitA, tableau, L)
+        elseif tableau[2L+1, 2L+1] == 1
+            mY_2!(bitA, tableau, L)
+        end
+        return tableau[2L+1, 2L+1]
+    end
+end
+
+function Measure_copy!(bitA::Int, tableau::BitMatrix, L::Int, z_outcomes, t::Int64)
+    outcome = z_outcomes[t, bitA]
+    p = 0
+    if z_outcomes[t, bitA] == 1
+        Y_2!(bitA, tableau, L)
+    elseif z_outcomes[t, bitA] == 0
+        mY_2!(bitA, tableau, L)
+    end
+    for g in (L+1):2L
+        if tableau[g, bitA] == 1
+            p = g
+            break
+        end
+    end
+    if p > 0
+        for g in 1:2L
+            if tableau[g, bitA] == 1 && p != g
+                rowsum!(g, p, tableau, L)
+            end
+        end
+        for cn in 1:(2L+1)
+            tableau[p-L, cn] = tableau[p, cn]
+            tableau[p, cn] = 0
+        end
+        tableau[p, 2L+1] = z_outcomes[t, bitA]
+        tableau[p, bitA + L] = 1
+        return tableau[p, 2L+1]
+    else
+        for cn in 1:(2L+1)
+            tableau[2L+1, cn] = 0
+        end
+        for ds in 1:L
+            if tableau[ds, bitA] == 1
+                rowsum!(2L+1, ds+L, tableau, L)
+            end
+        end
+        if outcome != tableau[2L+1, 2L+1]
+            measure_temp = "zero"
+        end
+        return tableau[2L+1, 2L+1]
+    end
+end
+
+function state0x!(tableau::BitMatrix, L::Int)
+    tableau[:] = zeros(Int64, 2L+1, 2L+1)
+    for i in 1:L
+        tableau[i, i+L] = 1
+    end
+    for i in L+1:2L
+        tableau[i, i-L] = 1
+    end
+end
+
+function state0!(tableau::BitMatrix, L::Int)
+    tableau[:] = zeros(Int64, 2L+1, 2L+1)
+    for i in 1:2L
+        tableau[i, i] = 1
+    end
+end
+
+function X!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, L + bitA]
+    end
+end
+
+function Y!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] ⊻ tableau[g, L + bitA]
+    end
+end
+
+function Z!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA]
+    end
+end
+
+function Phase!(bitA::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, bitA + L]
+        tableau[g, bitA + L] = tableau[g, bitA] ⊻ tableau[g, bitA + L]
+    end
+end
+
+function CZ!(bitA::Int, bitB::Int, tableau::BitMatrix, L::Int)
+    for g in 1:2L
+        tableau[g, 2L + 1] = tableau[g, 2L + 1] ⊻ tableau[g, bitA] * tableau[g, bitB] * (tableau[g, L + bitA] ⊻ tableau[g, L + bitB])
+        tableau[g, L + bitA] = tableau[g, L + bitA] ⊻ tableau[g, bitB]
+        tableau[g, L + bitB] = tableau[g, L + bitB] ⊻ tableau[g, bitA]
+    end
+end
+
+function Crx!(tableau::BitMatrix, L::Int, t_gate::Matrix{Float64}, bs)
+    for i = 1:L
+        x_i = sum(t_gate[:, i])
+        if (x_i * bs[i]) % 4 == 0
+        elseif (x_i * bs[i]) % 4 == 1
+            Phase!(Int64(i), tableau, L)
+        elseif (x_i * bs[i]) % 4 == 2
+            Z!(Int64(i), tableau, L)
+        elseif (x_i * bs[i]) % 4 == 3
+            Phase!(Int64(i), tableau, L)
+            Z!(Int64(i), tableau, L)
+        end
+        if [bs[i], bs[i+L]] == [0, 0]
+        elseif [bs[i], bs[i+L]] == [1, 0]
+            X!(i, tableau, L)
+        elseif [bs[i], bs[i+L]] == [1, 1]
+            Y!(i, tableau, L)
+        elseif [bs[i], bs[i+L]] == [0, 1]
+            Z!(i, tableau, L)
+        end
+    end
+end
+
+function Crx!(tableau::BitMatrix, L::Int, t_gate::Matrix{Float64}, bs)
+    for i = 1:L
+        x_i = sum(t_gate[:, i])
+        if [bs[i], bs[i+L]] == [0, 0]
+            for q = 1:x_i
+                Phase!(Int64(i), tableau, L)
+            end
+        elseif [bs[i], bs[i+L]] == [0, 1]
+            for q = 1:x_i
+                Phase!(Int64(i), tableau, L)
+            end
+            Z!(i, tableau, L)
+        elseif [bs[i], bs[i+L]] == [1, 1]
+            Y!(i, tableau, L)
+        elseif [bs[i], bs[i+L]] == [1, 0]
+            X!(i, tableau, L)
+        end
+    end
+end
+
+function check_z(bitA, tableau)
+    for g in (L+1):2L
+        if tableau[g, bitA] == 1
+            return "oops"
+        end
+    end
+    return [bitA, 3, measure_Z(bitA, tableau, L)]
+end
+
+function check_y(bitA, tableau)
+    for g in (L+1):2L
+        if [tableau[g, bitA], tableau[g, bitA+L]] == [1, 0]
+            return "oops"
+        elseif [tableau[g, bitA], tableau[g, bitA+L]] == [0, 1]
+            return "oops"
+        end
+    end
+    return [bitA, 2, measure_Y(bitA, tableau, L)]
+end
+
+function check_x(bitA, tableau, L)
+    for g in (L+1):2L
+        if [tableau[g, bitA], tableau[g, bitA+L]] == [1, 1]
+            return "oops"
+        elseif [tableau[g, bitA], tableau[g, bitA+L]] == [0, 1]
+            return "oops"
+        end
+    end
+    return [bitA, 1, measure_X(bitA, tableau, L)]
+end
+
+function zero_overlap_2(vec, tableau)
+    for i = 1:L
+        temp = check_z(i, tableau)
+        if temp != "oops" && temp[3] != 0
+            return 0
+        end
+    end
+end
+
+function zero_overlap_1(vec, tableau)
+    for i = 1:length(vec)
+        if vec[i][2] == 1
+            temp = check_x(vec[i][1], tableau, vec[i][1])
+            if temp != "oops" && temp[3] != vec[i][3]
+                return 0
+            end
+        elseif vec[i][2] == 2
+            temp = check_y(vec[i][1], tableau)
+            if temp != "oops" && temp[3] != vec[i][3]
+                return 0
+            end
+        elseif vec[i][2] == 3
+            temp = check_z(vec[i][1], tableau)
+            if temp != "oops" && temp[3] != vec[i][3]
+                return 0
+            end
+        end
+    end
+end
+
+function gen_rand_2(L)
+    q1 = rand(1:L)
+    q2 = rand(1:L)
+    while q2 == q1
+        q2 = rand(1:L)
+    end
+    return [q1, q2]
+end
+
+function dez!(natrix, i, j, value)
+    natrix[i, j] = value
+end
+
+function magic(bitstrings, iterations)
+    Bell = zeros(Float64, iterations)
+    for q = 1:iterations
+        samples = rand(bitstrings, 4)
+        str1 = mod.(samples[1] + samples[2], 2)
+        str2 = mod.(samples[3] + samples[4], 2)
+        Bell[q] = check_c(str1, str2)
+    end
+    return Bell
+end
+
+function unique_rows(bool_vect)
+    return Bool.(transpose(hcat(unique(bool_vect)...)))
+end
+
+function swap_rows!(matrix, row1, row2)
+    matrix[row1, :], matrix[row2, :] = matrix[row2, :], matrix[row1, :]
+end
+
+function Id(len)
+    mtrix = zeros(Int64, len, len)
+    for i = 1:len
+        mtrix[i, i] = 1
+    end
+    return Bool.(mtrix)
+end
+
+function listtomat(ylist)
+    Matrixq = zeros(Int64, size(ylist)[1], 2L)
+    for q = 1:length(ylist)
+        Matrixq[q, :] .= ylist[q]
+    end
+    return Matrixq
+end
+
+function Layer!(tableau::BitMatrix, c_gates, z_msms, z_outcomes, L::Int, t, pcz::Float64, pzm::Float64)
+    temp = gen_rand_2(L)
+    p = rand()
+    if p < pcz
+        CZ!(temp[1], temp[2], tableau, L)
+        push!(c_gates[t], [temp[1], temp[2]])
+    end
+    p = rand()
+    if p < pzm
+        temp = rand(1:L)
+        Measure!(temp, tableau, L, z_outcomes, t)
+        push!(z_msms[t], Int64(temp))
+    end
+    return (c_gates, z_msms)
+end
+
+function magic_weight(bitstrings, probabilities, iterations)
+    Bell = zeros(Float64, iterations)
+    for q = 1:iterations
+        samples = sample(bitstrings, Weights(probabilities), 4)
+        str1 = mod.(samples[1] + samples[2], 2)
+        str2 = mod.(samples[3] + samples[4], 2)
+        Bell[q] = check_c(str1, str2)
+    end
+    return Bell
+end
+
+function generate_boolean_vectors(L)
+    vector_length = 2 * L
+    total_vectors = 2^vector_length
+    boolean_vectors = falses(total_vectors, vector_length)
+    for i in 0:total_vectors-1
+        binary_vector = reverse(digits(i, base = 2, pad = vector_length))
+        boolean_vectors[i+1, :] .= binary_vector .== 1
+    end
+    return boolean_vectors
+end
+
+function exact_magic_computation()
+    bit_store = []
+    temp = generate_boolean_vectors(L)
+    for i = 1:4^L
+        temp_ip = inner_product(tableau1, tableau2, c_gates, t_gates, z_msms, z_outcomes, temp[i, :], L)
+        if temp_ip > 0
+            push!(bit_store, [temp[i, :], (temp_ip)^2 / 2^L])
+        end
+    end
+    magic_check = 0
+    for i = 1:length(bit_store)
+        for j = 1:length(bit_store)
+            for k = 1:length(bit_store)
+                for l = 1:length(bit_store)
+                    magic_check += check_c((bit_store[i][1] .⊻ bit_store[j][1]),
+                                           (bit_store[k][1] .⊻ bit_store[l][1])) *
+                                   bit_store[i][2] * bit_store[j][2] * bit_store[k][2] * bit_store[l][2]
+                end
+            end
+        end
+    end
+    return magic_check
+end
+
+function exact_magic_computation2()
+    bit_store = []
+    temp = generate_boolean_vectors(L)
+    for i = 1:4^L
+        temp_ip = inner_product(tableau1, tableau2, c_gates, t_gates, z_msms, z_outcomes, temp[i, :], L)
+        if abs(temp_ip) > 0
+            push!(bit_store, [temp[i, :], (temp_ip)^2 / 2^L])
+        end
+    end
+    store_kappa = [bit_store[i][1] for i = 1:length(bit_store)]
+    probability_kappa = [bit_store[i][2] for i = 1:length(bit_store)]
+    return mean(magic_weight(store_kappa, probability_kappa, 10 * length(store_kappa)))
+end
+
+function check_conj(pauli)
+    track = 0
+    for q = 1:Int64(length(pauli)[1] ÷ 2)
+        if [pauli[q], pauli[q+L]] == [1, 1]
+            track += 1
+        end
+    end
+    if track % 2 == 0
+        return true
+    else
+        return false
+    end
+end
+
+function stabilizer_nullity(matrix, L)
+    temp = rref_mod2_verbose69(matrix)
+    return rank(temp) - L
+end
+
+function random_isotropic(temp2)
+    rand_store = Bool.(zeros(Float64, size(temp2)[2]))
+    for q = 1:size(temp2)[1]
+        index_temp = rand(0:1)
+        if index_temp == 1
+            rand_store = rand_store .⊻ temp2[q, :]
+        end
+    end
+    return transpose(rand_store)
+end
+
+function random_symplectic(temp1, temp2, m, k)
+    m_pairs = sample(1:k, m, replace = false)
+    temp = Bool.(zeros(Float64, size(temp2)[2]))
+    for r = 1:m
+        index_temp = rand(0:1)
+        m_pairs[r] = 2 * m_pairs[r] - index_temp
+    end
+    for q = 1:length(m_pairs)
+        temp = temp .⊻ temp1[m_pairs[q], :]
+    end
+    return transpose(temp)
+end
+
+function nonzero_positions(temp)
+    indices = []
+    for q = 1:length(temp)
+        if temp[q] != 0
+            push!(indices, q)
+        end
+    end
+    return transpose(indices)
+end
+
+function t_to_cliff(tableau, t_gates, L)
+    for q = 1:size(t_gates)[2]
+        if t_gates[q] == 2
+            Phase!(q, tableau, L)
+            t_gates[q] = 0
+        elseif t_gates[q] == 3
+            Phase!(q, tableau, L)
+            t_gates[q] = 1
+        elseif t_gates[q] == 4
+            Z!(q, tableau, L)
+            t_gates[q] = 0
+        elseif t_gates[q] == 5
+            Z!(q, tableau, L)
+            t_gates[q] = 1
+        elseif t_gates[q] == 6
+            Z!(q, tableau, L)
+            S!(q, tableau, L)
+        elseif t_gates[q] == 7
+            Z!(q, tableau, L)
+            S!(q, tableau, L)
+            t_gates[q] = 1
+        end
+    end
+    return (tableau, t_gates)
+end
+
+function sample_m(k)
+    p = rand()
+    cumulative_prob = 0.0
+    for m in 0:k
+        pm = 2.0^(-k) * binomial(k, m)
+        cumulative_prob += pm
+        if p < cumulative_prob
+            return m
+        end
+    end
+end
+
+function check_real(pauli)
+    even_no = 0
+    half = Int64(length(pauli) ÷ 2)
+    for q = 1:half
+        if [pauli[q], pauli[q+half]] == [1, 1]
+            even_no += 1
+        end
+    end
+    if even_no % 2 == 0
+        return true
+    else
+        return false
+    end
+end
+
+function rref_mod2_verbose69(A)
+    rows, cols = size(A)
+    r = 1
+    for c in 1:cols
+        pivot_row = findfirst(x -> A[x, c] == 1, r:rows)
+        if pivot_row !== nothing
+            pivot_row += r - 1
+            if pivot_row != r
+                A[[r, pivot_row], :] .= A[[pivot_row, r], :]
+            end
+            for i in (r+1):rows
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[r, :]
+                end
+            end
+            r += 1
+        end
+    end
+    for c in cols:-1:1
+        pivot_row = nothing
+        for row in rows:-1:1
+            first_pivot_col = findfirst(x -> x == 1, A[row, :])
+            if first_pivot_col == c
+                pivot_row = row
+                break
+            end
+        end
+        if pivot_row !== nothing
+            for i in 1:(pivot_row-1)
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[pivot_row, :]
+                end
+            end
+        end
+    end
+    return A
+end
+
+function rref_mod2_verbose69_double(A, ftableau, L)
+    rows, cols = size(A)
+    r = 1
+    for c in 1:cols
+        pivot_row = findfirst(x -> A[x, c] == 1, r:rows)
+        if pivot_row !== nothing
+            pivot_row += r - 1
+            if pivot_row != r
+                A[[r, pivot_row], :] .= A[[pivot_row, r], :]
+                ftableau[[r, pivot_row], :] .= ftableau[[pivot_row, r], :]
+                ftableau[[r+L, pivot_row+L], :] .= ftableau[[pivot_row+L, r+L], :]
+            end
+            for i in (r+1):rows
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[r, :]
+                    rowsum!(i+L, r+L, ftableau, L)
+                    rowsum!(r, i, ftableau, L)
+                end
+            end
+            r += 1
+        end
+    end
+    for c in cols:-1:1
+        pivot_row = nothing
+        for row in rows:-1:1
+            first_pivot_col = findfirst(x -> x == 1, A[row, :])
+            if first_pivot_col == c
+                pivot_row = row
+                break
+            end
+        end
+        if pivot_row !== nothing
+            for i in 1:(pivot_row-1)
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[pivot_row, :]
+                    rowsum!(i+L, pivot_row+L, ftableau, L)
+                    rowsum!(pivot_row, i, ftableau, L)
+                end
+            end
+        end
+    end
+    return (A, ftableau)
+end
+
+function compute_probability_conj(input_state, t_loc, bitstring)
+    den_store = convert_to_density_rep(input_state[L+1:2L, 1:2L+1])
+    for q = 1:L
+        t_gate = form_t_gate(q, t_loc[q])
+        den_store = t_gate * den_store * conj(transpose(t_gate))
+    end
+    sigma = log_to_op(bitstring)
+    return 1 / 2^L * tr(sigma * conj(den_store) * sigma * den_store)
+end
+
+function form_t_gate(qubit, n)
+    if qubit == 1
+        temp = T^n
+        for i in 2:L
+            temp = kron(temp, Id(2))
+        end
+    else
+        temp = Id(2)
+        for i in 2:L
+            if i == qubit
+                temp = kron(temp, T^n)
+            else
+                temp = kron(temp, Id(2))
+            end
+        end
+    end
+    return temp
+end
+
+function compute_probability(input_state, t_loc, bitstring)
+    den_store = convert_to_density_rep(input_state[L+1:2L, 1:2L+1])
+    for q = 1:L
+        t_gate = form_t_gate(q, t_loc[q])
+        den_store = t_gate * den_store * conj(transpose(t_gate))
+    end
+    sigma = log_to_op(bitstring)
+    return 1 / 2^L * tr(sigma * den_store * sigma * den_store)
+end
+
+function probability_map(list_of_vectors)
+    all_elements = [vec(v) for v in list_of_vectors]
+    counts = countmap(all_elements)
+    total = sum(values(counts))
+    probabilities = Dict(k => v / total for (k, v) in counts)
+    return probabilities
+end
+
+function log_to_op(bitstring)
+    l = Int64(length(bitstring) ÷ 2)
+    if [bitstring[1], bitstring[1+l]] == [1, 1]
+        nul = s_y
+    elseif [bitstring[1], bitstring[1+l]] == [1, 0]
+        nul = s_x
+    elseif [bitstring[1], bitstring[1+l]] == [0, 1]
+        nul = s_z
+    else
+        nul = Id(2)
+    end
+    for q = 2:L
+        if [bitstring[q], bitstring[q+l]] == [1, 1]
+            nul = kron(nul, s_y)
+        elseif [bitstring[q], bitstring[q+l]] == [1, 0]
+            nul = kron(nul, s_x)
+        elseif [bitstring[q], bitstring[q+l]] == [0, 1]
+            nul = kron(nul, s_z)
+        else
+            nul = kron(nul, Id(2))
+        end
+    end
+    return nul
+end
+
+function stab_to_op(bitstring)
+    nul = log_to_op(bitstring[1:2L])
+    if bitstring[2L+1] == 0
+        return (Id(2^L) + nul) / 2
+    elseif bitstring[2L+1] == 1
+        return (Id(2^L) - nul) / 2
+    end
+    return nul
+end
+
+function convert_to_density_rep(tableau)
+    nul2 = Id(2^L)
+    for q = 1:L
+        nul2 = nul2 * stab_to_op(tableau[q, :])
+    end
+    return nul2
+end
+
+function sample_to_string(input)
+    if ndims(input) == 1
+        input = reshape(input, 1, length(input))
+    end
+    ncols = size(input, 2)
+    n = size(input, 1)
+    m = div(ncols, 2)
+    matrix = Array{String}(undef, n, m)
+    for q in 1:n
+        for r in 1:m
+            a = input[q, r]
+            b = input[q, r + m]
+            if a == 0 && b == 0
+                matrix[q, r] = "I"
+            elseif a == 0 && b == 1
+                matrix[q, r] = "Z"
+            elseif a == 1 && b == 0
+                matrix[q, r] = "X"
+            elseif a == 1 && b == 1
+                matrix[q, r] = "Y"
+            else
+                matrix[q, r] = "?"
+            end
+        end
+    end
+    return matrix
+end
+
+function check_des_comm(tableau, L)
+    for q = 1:L
+        if check_c(tableau[q, 1:2L], tableau[q+L, 1:2L]) == 0
+            println(["{h_{q},g_{q}}", q])
+            return "invalid"
+        end
+        for r = q+1:L
+            if check_c(tableau[q, 1:2L], tableau[r, 1:2L]) == 2
+                println(["[h_{q},h_{r}]", q, r])
+                return "invalid"
+            end
+        end
+        for r = 1:L
+            if r != q
+                if check_c(tableau[q, 1:2L], tableau[r+L, 1:2L]) == 2
+                    println(["[h_{q},h_{r}]", q, r])
+                    return "invalid"
+                end
+            end
+        end
+    end
+end
+
+function apply_t_gates2(tableau, qubits, L)
+    temp1 = Bool.(zeros(Float64, 2 * length(qubits), 2L))
+    temp2 = Bool.(zeros(Float64, L - length(qubits), 2L))
+    temp2_des = Bool.(zeros(Float64, L - length(qubits), 2L))
+    n_qubits = [i for i = 1:L if i ∉ qubits]
+    index = 0
+    for q = 1:length(n_qubits)
+        temp2[q, :] = tableau[n_qubits[q]+L, 1:2L]
+        temp2_des[q, :] = tableau[n_qubits[q], 1:2L]
+        if check_real(temp2[q, :]) == false && index == 0
+            index = q
+        end
+    end
+    for q = 1:length(qubits)
+        rare = deepcopy(tableau[qubits[q]+L, 1:2L])
+        temp1[2q-1, :] = rare
+        temp1[2q, :] = rare
+        if [rare[qubits[q]], rare[qubits[q]+L]] == Bool.([1, 1])
+            temp1[2q, qubits[q]], temp1[2q, qubits[q]+L] = Bool(1), Bool(0)
+        elseif [rare[qubits[q]], rare[qubits[q]+L]] == Bool.([1, 0])
+            temp1[2q, qubits[q]], temp1[2q, qubits[q]+L] = Bool(1), Bool(1)
+        end
+    end
+    if index > 0
+        for q = 1:size(temp2_des)[1]
+            for r = 2:2:size(temp1)[1]
+                if check_c(temp2_des[q, :], temp1[r, :]) == 2
+                    temp2_des[q, :] = temp2_des[q, :] .⊻ temp1[r-1, :]
+                end
+            end
+        end
+        for q = 1:length(n_qubits)
+            if check_real(temp2[q, :]) == false
+                temp3 = temp2_des[q, :]
+                index = q
+                break
+            end
+        end
+        for q = 1:length(n_qubits)
+            if check_real(temp2[q, :]) == false && q != index
+                temp3 = temp3 .⊻ temp2_des[q, :]
+                temp2[q, :] = temp2[q, :] .⊻ temp2[index, :]
+            end
+        end
+        for q = 1:2:size(temp1)[1]
+            if check_real(temp1[q, :]) == false
+                temp1[q, :] = temp1[q, :] .⊻ temp2[index, :]
+                temp3 = temp1[q+1, :] .⊻ temp3
+            end
+        end
+        for q = 2:2:size(temp1)[1]
+            if check_real(temp1[q, :]) == false
+                temp1[q, :] = temp1[q, :] .⊻ temp2[index, :]
+                temp3 = temp1[q-1, :] .⊻ temp3
+            end
+        end
+    else
+        temp3 = Bool.(zeros(Float64, 2L))
+        for q = 1:2:size(temp1)[1]
+            if check_real(temp1[q, :]) == false
+                temp3 = temp3 .⊻ temp1[q+1, :]
+            end
+        end
+        for q = 2:2:size(temp1)[1]
+            if check_real(temp1[q, :]) == false
+                temp3 = temp3 .⊻ temp1[q-1, :]
+            end
+        end
+    end
+    return [temp1, temp2, temp3]
+end
+
+function rref_mod2_verbose69(A)
+    rows, cols = size(A)
+    r = 1
+    for c in 1:cols
+        pivot_row = findfirst(x -> A[x, c] == 1, r:rows)
+        if pivot_row !== nothing
+            pivot_row += r - 1
+            if pivot_row != r
+                A[[r, pivot_row], :] .= A[[pivot_row, r], :]
+            end
+            for i in (r+1):rows
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[r, :]
+                end
+            end
+            r += 1
+        end
+    end
+    for c in cols:-1:1
+        pivot_row = nothing
+        for row in rows:-1:1
+            first_pivot_col = findfirst(x -> x == 1, A[row, :])
+            if first_pivot_col == c
+                pivot_row = row
+                break
+            end
+        end
+        if pivot_row !== nothing
+            for i in 1:(pivot_row-1)
+                if A[i, c] == 1
+                    A[i, :] .⊻= A[pivot_row, :]
+                end
+            end
+        end
+    end
+    return A
+end
+
+function gen_circuit(Lo, prob_t, beta, prob_m, tomestep)
+    timestep = tomestep
+    L = Lo
+    t_gates = zeros(Float64, timestep, L)
+    z_msms = []
+    for q = 1:timestep
+        push!(z_msms, [])
+    end
+    z_outcomes = Matrix(undef, timestep, L)
+    p_t = prob_t
+    pcz = 0.5
+    pzm = prob_m
+    for i = 1:timestep
+        p = rand()
+        if p < p_t / L^(beta-1)
+            j = rand(1:L)
+            t_gates[i, j] = 1
+        end
+    end
+    c_gates = []
+    for i = 1:timestep
+        push!(c_gates, [])
+    end
+    tab_dim = 2L + 1
+    tableau2 = BitMatrix(undef, tab_dim, tab_dim)
+    state0!(tableau2, L)
+    tableau1 = BitMatrix(undef, tab_dim, tab_dim)
+    state0x!(tableau1, L)
+    for i = 1:timestep
+        c_gates, z_msms = Layer!(tableau1, c_gates, z_msms, z_outcomes, L, i, pcz, pzm)
+    end
+    tableauc = copy(tableau1)
+    vech = []
+    for q = 1:length(z_msms)
+        if length(z_msms[q]) != 0
+            for k = 1:length(z_msms[q])
+                t_gates[1:q, z_msms[q][k]] .= 0
+            end
+        end
+    end
+    return (tableau1, t_gates)
+end
+
+function horizontal_mean(input)
+    temp = zeros(Float64, size(input)[1])
+    for q = 1:size(input)[1]
+        temp[q] = mean(input[q, :])
+    end
+    return temp
+end
+
+function runy(L, pt, pm, bet, iterations_total, filename)
+    beta = bet
+    no_samples = 4L
+    magic_store = zeros(iterations_total)
+    for q = 1:iterations_total
+        tableau1, t_gates = gen_circuit(L, pt, beta, pm, 2L^2)
+        t_loc = sum(t_gates, dims = 1) .% 4
+        tbefore = deepcopy(tableau1)
+        t_before = deepcopy(t_loc)
+        tableau1, t_loc = t_to_cliff(tableau1, t_loc, L)
+        tableau1 = rref_mod2_verbose69_double(tableau1[L+1:2L, 1:L], tableau1, L)[2]
+        temp1, temp2, temp3 = apply_t_gates2(tableau1, nonzero_positions(t_loc), L)
+        k = Int64(size(temp1)[1] ÷ 2)
+        items = [i for i = 0:k]
+        weights2 = [2.0^(-k) * binomial(BigInt(k), BigInt(i)) for i = 0:k]
+        temp = sample(items, Weights(weights2), no_samples)
+        net_samples = [random_symplectic(temp1, temp2, temp[i], k) .⊻ random_isotropic(temp2) .⊻ transpose(temp3) for i = 1:no_samples]
+        temp_sample = unique(net_samples)
+        tempm = Bool.(zeros(Float64, size(temp_sample)[1], 2L))
+        for ele = 1:size(temp_sample)[1]
+            temp_sample[ele] = temp_sample[ele] .⊻ transpose(temp3)
+        end
+        for es = 1:size(temp_sample)[1]
+            tempm[es, :] = temp_sample[es]
+        end
+        magic_store[q] = stabilizer_nullity(tempm, L)
+    end
+    writedlm(string(filename, "_magic_pt=", pt, "_pm=", pm, "_pu=", 0.5, "_beta=", bet), magic_store, ", ")
+end
