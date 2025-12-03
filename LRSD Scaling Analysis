@@ -1,0 +1,2047 @@
+using LinearAlgebra
+using Kronecker
+using Random
+using CSV, DelimitedFiles
+using Dates
+t1 = now()
+
+Id1 = [1 0 + 0im; 0 1]
+s_x = [0 1 + 0im; 1 0]
+s_y = [0 -im; im 0]
+s_z = [1 + 0im 0; 0 -1]
+rx_2 = exp(-im*s_x*pi/4)
+rx_m2 = exp(im*s_x*pi/4)
+ry_2 = exp(-im*s_y*pi/4)
+ry_m2 = exp(im*s_y*pi/4)
+
+paulis = [Id1,s_x,s_y,s_z]
+
+r_1 = rx_2 * ry_2
+r_2 = rx_2 * ry_m2
+r_3 = rx_m2 * ry_2
+r_4 = rx_m2 * ry_m2
+r_5 = ry_2 * rx_2
+r_6 = ry_2 * rx_m2
+r_7 = ry_m2 * rx_2
+r_8 = ry_m2 * rx_m2
+
+r_9 = rx_2
+r_10 = rx_m2
+r_11 = ry_2
+r_12 = ry_m2
+r_13 = rx_m2 * ry_2 * rx_2
+r_14 = rx_m2 * ry_m2 * rx_2
+
+h_1 = s_x*ry_2
+h_2 = s_x*ry_m2
+h_3 = s_y*rx_2
+h_4 = s_y*rx_m2
+h_5 = rx_2*ry_2*rx_2
+h_6 = rx_m2*ry_2*rx_m2
+
+S = [1 0; 0 im]
+
+c_gates = [Id1,s_x,s_y,s_y*s_x,r_1,r_2,r_3,r_4,r_5,r_6,r_7,r_8,r_9,r_10,r_11,r_12,r_13,r_14,h_1,h_2,h_3,h_4,h_5,h_6,S]
+
+SWAP = [1 0 0 0; 0 0 1 0; 0 1 0 0; 0 0 0 1]
+iSWAP = [1 0 0 0; 0 0 1im 0;0 1im 0 0;0 0 0 1]
+CNOT = [1 0 0 0; 0 1 0 0; 0 0 0 1; 0 0 1 0]
+CZ = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 -1]
+
+list = []
+list_temp = [Id1,s_x,s_y,s_z]
+for i=1:4
+    for j=1:4
+        push!(list,kron(list_temp[i],list_temp[j]))
+    end
+end
+
+function convert_2tb(matrix)
+    for i=1:4
+        for j=1:4
+            if maximum(norm.(kron(paulis[i],paulis[j]) .- matrix)) < .001
+                return([1,convert_tb(paulis[i]),convert_tb(paulis[j])])
+            elseif maximum(norm.(kron(paulis[i],paulis[j]) .+ matrix)) < .001
+                return([-1,convert_tb(paulis[i]),convert_tb(paulis[j])])
+            elseif maximum(norm.(kron(paulis[i],paulis[j]) .+ im*matrix)) < .001
+                return([im,convert_tb(paulis[i]),convert_tb(paulis[j])])
+            elseif maximum(norm.(kron(paulis[i],paulis[j]) .- im*matrix)) < .001
+                return([-im,convert_tb(paulis[i]),convert_tb(paulis[j])])
+            end
+        end
+    end
+end
+
+function abs_diff(matrix)
+    norm_t = 0
+    for q = 1:size(matrix)[1]
+        for j = 1:size(matrix)[2]
+            norm_t = norm_t + abs(matrix[q,j])
+        end
+    end
+    return(norm_t)
+end
+
+alp = (1+exp(im*pi/4))/2
+bet = (1-exp(im*pi/4))/2
+T = [1 0;0 exp(im*pi/4)]
+
+norm(alp)
+norm(bet)
+
+function convert_tb_wphase(matrix)
+    for i=1:4
+        if abs_diff((paulis[i] .- matrix)) < .0001
+            return([1,convert_tb(paulis[i])])
+        elseif abs_diff((paulis[i] .+ matrix)) < .0001
+            return([-1,convert_tb(paulis[i])])
+        elseif abs_diff((paulis[i] .- im*matrix)) < .0001
+            return([im,convert_tb(paulis[i])])
+        elseif abs_diff((paulis[i] .+ im*matrix)) < .0001
+            return([-im,convert_tb(paulis[i])])
+        end
+    end
+end
+
+function convert_tb(matrix)
+    if abs_diff(matrix .- Id1) < .0001
+        return(Bool.([0 0]))
+    elseif abs_diff(matrix .- s_x) < .0001
+        return(Bool.([1 0]))
+    elseif abs_diff(matrix .- s_y) < .0001
+        return(Bool.([1 1]))
+    elseif abs_diff(matrix .- s_z) < .0001
+        return(Bool.([0 1]))
+    end
+end
+
+function notomat(input)
+    if input == 0
+        return(Id1)
+    elseif input == 1
+        return(s_x)
+    elseif input == 2
+        return(s_y)
+    elseif input == 3
+        return(s_z)
+    end
+end
+
+two_gates = [CNOT,SWAP,iSWAP,CZ]
+
+c_list = []
+for j=1:25
+    push!(c_list,[])
+    for k=1:4
+        push!(c_list[j],convert_tb_wphase(c_gates[j]*notomat(k-1)*conj(transpose(c_gates[j]))))
+    end
+end
+
+SWAP_list = [[],[],[],[]]
+for i=1:4
+    for j=1:4
+        push!(SWAP_list[i],convert_2tb(SWAP*kron(list_temp[i],list_temp[j])*SWAP))
+    end
+end
+
+CNOT_list = [[],[],[],[]]
+for i=1:4
+    for j=1:4
+        push!(CNOT_list[i],convert_2tb(CNOT*kron(list_temp[i],list_temp[j])*CNOT))
+    end
+end
+
+iSWAP_list = [[],[],[],[]]
+for i=1:4
+    for j=1:4
+        push!(iSWAP_list[i],convert_2tb(iSWAP*kron(list_temp[i],list_temp[j])*conj(transpose(iSWAP))))
+    end
+end
+
+CZ_list = [[],[],[],[]]
+for i=1:4
+    for j=1:4
+        push!(CZ_list[i],convert_2tb(CZ*kron(list_temp[i],list_temp[j])*conj(transpose(CZ))))
+    end
+end
+
+two_qub_list = [CNOT_list,SWAP_list,iSWAP_list,CZ_list]
+
+function g(x1::Bool,z1::Bool,x2::Bool,z2::Bool)
+    if x1 == z1 == 0
+        return 0
+    elseif x1 == z1 == 1
+        return z2-x2
+    elseif x1 == 1 && z1 == 0
+        return z2*(2*x2-1)
+    else
+        return x2*(1-2*z2)
+    end
+end
+
+function rowsum!(h::Int,i::Int,tableau::BitMatrix,L::Int)
+    phaseSum = 2*tableau[h,2*L+1] + 2*tableau[i,2*L+1]
+    for j in 1:L
+        x1 = tableau[i,j]
+        z1 = tableau[i,j+L]
+        x2 = tableau[h,j]
+        z2 = tableau[h,j+L]
+        phaseSum += g(x1,z1,x2,z2)
+    end
+
+    if phaseSum%4 == 0
+        tableau[h,2*L+1] = 0
+    elseif abs(phaseSum%4) == 2
+        tableau[h,2*L+1] = 1
+    end
+
+    for j in 1:L
+        tableau[h,j]  = (tableau[i,j] + tableau[h,j])%2
+        tableau[h,j+L]  = (tableau[i,j+L] + tableau[h,j+L])%2
+    end
+end
+
+function Id(n)
+    matrixq = zeros(Float64,n,n)
+    for i=1:n
+        matrixq[i,i] = 1
+    end
+    return(matrixq)
+end
+
+function check_c(bs1,bs2,L)
+    no = Bool.(0)
+    for q=1:L
+        no = Bool.(no .⊻ Bool.(bs1[q]*bs2[L+q]))
+    end
+    for q=1:L
+        no = Bool.(no .⊻ Bool.(bs1[L+q]*bs2[q]))
+    end
+    if no == Bool(0)
+        return(0)
+    elseif no == Bool(1)
+        return(2)
+    else
+        println("error")
+    end
+end
+
+function remove_row!(matrix, row_index)
+    matrix = matrix[setdiff(1:size(matrix, 1), row_index), :]
+    return(matrix)
+end
+
+function add_row!(matrix, new_row)
+    matrix = vcat(matrix, new_row)
+end
+
+function check_c_tgate!(bitstring,k)
+    if bitstring[k] == Bool(0)
+        return(true)
+    else
+        return(false)
+    end
+end
+
+function single_qubit_gate(bitstring,phases,gate,k,L)
+    for l=1:Int64(size(bitstring)[1])
+        temp = tuple_ar!([bitstring[l,k],bitstring[l,k+L]])
+        bitstring[l,k] = c_list[gate][temp+1][2][1]
+        bitstring[l,k+L] = c_list[gate][temp+1][2][2]
+        phases[l] = c_list[gate][temp+1][1]*phases[l]
+    end
+    return(phases,bitstring)
+end
+
+function double_qubit_gate(bitstring,phases,gate,j,k,L)
+    for l=1:Int64(size(bitstring)[1])
+        temp1 = tuple_ar!([bitstring[l,j],bitstring[l,j+L]])
+        temp2 = tuple_ar!([bitstring[l,k],bitstring[l,k+L]])
+        bitstring[l,j] = two_qub_list[gate][temp1+1][temp2+1][2][1]
+        bitstring[l,j+L] = two_qub_list[gate][temp1+1][temp2+1][2][2]
+        bitstring[l,k] = two_qub_list[gate][temp1+1][temp2+1][3][1]
+        bitstring[l,k+L] = two_qub_list[gate][temp1+1][temp2+1][3][2]
+        phases[l] = two_qub_list[gate][temp1+1][temp2+1][1]*phases[l]
+    end
+    return(phases,bitstring)
+end
+
+function single_cliff_unitary(bitstring,phases,gate,k,tableau,L)
+    phases,bitstring = single_qubit_gate(bitstring,phases,gate,k,L)
+    C1gate!(gate,k,tableau,L)
+    return(phases,bitstring)
+end
+
+function two_cliff_unitary(bitstring,phases,gate,j,k,tableau,L)
+    phases, bitstring = double_qubit_gate(bitstring,phases,gate,j,k,L)
+    if gate == 1
+        CNOT!(j,k,tableau,L)
+    elseif gate == 2
+        SWAP!(j,k,tableau,L)
+    elseif gate == 3
+        iSWAP!(j,k,tableau,L)
+    elseif gate == 4
+        CZ!(j,k,tableau,L)
+    end
+    return(phases,bitstring)
+end
+
+function tuple_ar!(input1,input2)
+    temp = [0 0]
+    if input1 == [0 0]
+        temp[1] = 0
+    elseif input1 == [1 0]
+        temp[1] = 1
+    elseif input1 == [1 1]
+        temp[1] = 2
+    elseif input1 == [0 1]
+        temp[1] = 3
+    end
+    if input2 == [0 0]
+        temp[2] = 0
+    elseif input2 == [1 0]
+        temp[2] = 1
+    elseif input2 == [1 1]
+        temp[2] = 2
+    elseif input2 == [0 1]
+        temp[2] = 3
+    end
+    return(Int64.(temp))
+end
+
+function tuple_ar!(input1)
+    if input1 == Bool.([0, 0])
+        return 0
+    elseif input1 == Bool.([1, 0])
+        return 1
+    elseif input1 == Bool.([1, 1])
+        return 2
+    elseif input1 == Bool.([0, 1])
+        return 3
+    end
+end
+
+function log_to_op(bitstring)
+    l = Int64(length(bitstring)/2)
+    if [bitstring[1],bitstring[1+l]] == [1,1]
+        nul = s_y
+    elseif [bitstring[1],bitstring[1+l]] == [1,0]
+        nul = s_x
+    elseif [bitstring[1],bitstring[1+l]] == [0,1]
+        nul = s_z
+    else
+        nul = Id(2)
+    end
+    for q=2:l
+        if [bitstring[q],bitstring[q+l]] == [1,1]
+            nul = kron(nul,s_y)
+        elseif [bitstring[q],bitstring[q+l]] == [1,0]
+            nul = kron(nul,s_x)
+        elseif [bitstring[q],bitstring[q+l]] == [0,1]
+            nul = kron(nul,s_z)
+        else
+            nul = kron(nul,Id(2))
+        end
+    end
+    return(nul)
+end
+
+function stab_to_op(bitstring)
+    el = Int64((length(bitstring)-1)/2)
+    nul = log_to_op(bitstring[1:2*el])
+    if bitstring[2*L+1] == 0
+        return((Id(2^L)+nul)/2)
+    elseif bitstring[2*L+1] == 1
+        return((Id(2^L)-nul)/2)
+    end
+    return(nul)
+end
+
+function convert_to_density_rep(phases,logicals,tableau)
+    nul1 = zeros(Float64,2^L,2^L)
+    for q = 1:size(logicals)[1]
+        nul1 = nul1 + phases[q]*log_to_op(logicals[q,:])
+    end
+    nul2 = Id(2^L)
+    for q = 1:r
+        nul2 = nul2*stab_to_op(tableau[L+q,:])
+    end
+    return(nul1*nul2)
+end
+
+function swap_rows!(Matrixin,rowA,rowB)
+    Matrixin[rowA,:],Matrixin[rowB,:] = Matrixin[rowB,:],Matrixin[rowA,:]
+end
+
+function X!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,L + bitA]
+    end
+end
+
+function Y!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA] ⊻ tableau[g,L + bitA]
+    end
+end
+
+function Z!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]
+    end
+end
+
+function X_2!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,L + bitA] ⊻ tableau[g,L + bitA]
+        tableau[g,bitA] = tableau[g,bitA] ⊻ tableau[g,L + bitA]
+    end
+end
+
+function mX_2!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,L + bitA]
+        tableau[g,bitA] = tableau[g,bitA] ⊻ tableau[g,L + bitA]
+    end
+end
+
+function Y_2!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,L + bitA] ⊻ tableau[g,bitA]
+        tempBit = tableau[g,bitA]
+        tableau[g,bitA] = tableau[g,L + bitA]
+        tableau[g,L + bitA] = tempBit
+    end
+end
+
+function mY_2!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,L + bitA] ⊻ tableau[g,bitA + L]
+        tempBit = tableau[g,bitA]
+        tableau[g,bitA] = tableau[g,L + bitA]
+        tableau[g,L + bitA] = tempBit
+    end
+end
+
+function Phase!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,bitA + L]
+        tableau[g,bitA + L] = tableau[g,bitA] ⊻ tableau[g,bitA + L]
+    end
+end
+
+function Hadamard!(bitA::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,bitA + L]
+        tempBit = tableau[g,bitA]
+        tableau[g,bitA] = tableau[g,bitA + L]
+        tableau[g,bitA + L] = tempBit
+    end
+end
+
+function CZ!(bitA::Int,bitB::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,bitB]*(tableau[g,L + bitA] ⊻ tableau[g,L + bitB])
+        tableau[g,L + bitA] = tableau[g,L + bitA] ⊻ tableau[g,bitB]
+        tableau[g,L + bitB] = tableau[g,L + bitB] ⊻ tableau[g,bitA]
+    end
+end
+
+function CNOT!(bitA::Int,bitB::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,bitA]*tableau[g,bitB + L]*(1 ⊻ tableau[g,bitB] ⊻ tableau[g,bitA + L])
+        tableau[g,bitB] = tableau[g,bitA] ⊻ tableau[g,bitB]
+        tableau[g,bitA + L] = tableau[g,bitA + L] ⊻ tableau[g,bitB + L]
+    end
+end
+
+function SWAP!(bitA::Int,bitB::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tempBitX = tableau[g,bitA]
+        tempBitZ = tableau[g,L + bitA]
+        tableau[g,bitA] = tableau[g,bitB]
+        tableau[g,L + bitA] = tableau[g,L + bitB]
+        tableau[g,bitB] = tempBitX
+        tableau[g,L + bitB] = tempBitZ
+    end
+end
+
+function iSWAP!(bitA::Int,bitB::Int,tableau::BitMatrix,L::Int)
+    for g in 1:2*L
+        tableau[g,2*L + 1] = tableau[g,2*L + 1] ⊻ tableau[g,L + bitA]*(1 ⊻ tableau[g,bitA] ⊻ tableau[g,bitA]*tableau[g,bitB]) ⊻ tableau[g,L + bitA]^2 ⊻ tableau[g,L + bitB]*(1 ⊻ tableau[g,bitB]^2 ⊻ tableau[g,L + bitB] ⊻ tableau[g,bitB]*(1 ⊻ tableau[g,bitA] ⊻ tableau[g,L + bitB]))
+        tempBitX = tableau[g,bitA]
+        tempBitZ = tableau[g,L + bitA]
+        tableau[g,L + bitA] = tableau[g,bitA] ⊻ tableau[g,bitB] ⊻ tableau[g,L + bitB]
+        tableau[g,L + bitB] = tableau[g,bitA] ⊻ tableau[g,bitB] ⊻ tempBitZ
+        tableau[g,bitA] = tableau[g,bitB]
+        tableau[g,bitB] = tempBitX
+    end
+end
+
+function C1gate!(index,bitA,tableau::BitMatrix,L::Int)
+    if index == 1
+    elseif index == 2
+        X!(bitA,tableau,L)
+    elseif index == 3
+        Y!(bitA,tableau,L)
+    elseif index == 4
+        X!(bitA,tableau,L)
+        Y!(bitA,tableau,L)
+    elseif index == 5
+        Y_2!(bitA,tableau,L)
+        X_2!(bitA,tableau,L)
+    elseif index == 6
+        mY_2!(bitA,tableau,L)
+        X_2!(bitA,tableau,L)
+    elseif index == 7
+        Y_2!(bitA,tableau,L)
+        mX_2!(bitA,tableau,L)
+    elseif index == 8
+        mY_2!(bitA,tableau,L)
+        mX_2!(bitA,tableau,L)
+    elseif index == 9
+        X_2!(bitA,tableau,L)
+        Y_2!(bitA,tableau,L)
+    elseif index == 10
+        mX_2!(bitA,tableau,L)
+        Y_2!(bitA,tableau,L)
+    elseif index == 11
+        X_2!(bitA,tableau,L)
+        mY_2!(bitA,tableau,L)
+    elseif index == 12
+        mX_2!(bitA,tableau,L)
+        mY_2!(bitA,tableau,L)
+    elseif index == 13
+        X_2!(bitA,tableau,L)
+    elseif index == 14
+        mX_2!(bitA,tableau,L)
+    elseif index == 15
+        Y_2!(bitA,tableau,L)
+    elseif index == 16
+        mY_2!(bitA,tableau,L)
+    elseif index == 17
+        X_2!(bitA,tableau,L)
+        Y_2!(bitA,tableau,L)
+        mX_2!(bitA,tableau,L)
+    elseif index == 18
+        X_2!(bitA,tableau,L)
+        mY_2!(bitA,tableau,L)
+        mX_2!(bitA,tableau,L)
+    elseif index == 19
+        Y_2!(bitA,tableau,L)
+        X!(bitA,tableau,L)
+    elseif index == 20
+        mY_2!(bitA,tableau,L)
+        X!(bitA,tableau,L)
+    elseif index == 21
+        X_2!(bitA,tableau,L)
+        Y!(bitA,tableau,L)
+    elseif index == 22
+        mX_2!(bitA,tableau,L)
+        Y!(bitA,tableau,L)
+    elseif index == 23
+        X_2!(bitA,tableau,L)
+        Y_2!(bitA,tableau,L)
+        X_2!(bitA,tableau,L)
+    elseif index == 24
+        mX_2!(bitA,tableau,L)
+        Y_2!(bitA,tableau,L)
+        mX_2!(bitA,tableau,L)
+    elseif index == 25
+        Phase!(bitA,tableau,L)
+    end
+end
+
+function randClifford!(bitA::Int,bitB::Int,tableau::BitMatrix,L::Int)
+    gate_index = rand(1:11520)
+    C1gate!(rand(1:24),bitA,tableau,L)
+    C1gate!(rand(1:24),bitB,tableau,L)
+    if gate_index <= 576
+    elseif gate_index <= 5760
+        CNOT!(bitA,bitB,tableau,L)
+        C1gate!(rand([1,8,9]),bitA,tableau,L)
+        C1gate!(rand([1,8,9]),bitB,tableau,L)
+    elseif gate_index <= 10944
+        iSWAP!(bitA,bitB,tableau,L)
+        C1gate!(rand([1,8,9]),bitA,tableau,L)
+        C1gate!(rand([1,8,9]),bitB,tableau,L)
+    elseif gate_index <= 11520
+        SWAP!(bitA,bitB,tableau,L)
+    end
+end
+
+function levi_civita(i,j)
+    if i == 0 || j == 0
+        return(1)
+    elseif i == 1
+        if j == 2
+            return(1)
+        elseif j == 3
+            return(-1)
+        end
+    elseif i == 2
+        if j == 3
+            return(1)
+        elseif j == 1
+            return(-1)
+        end
+    elseif i == 3
+        if j == 1
+            return(1)
+        elseif j == 2
+            return(-1)
+        end
+    end
+end
+
+function to_int(input)
+    if input[1] == 0 && input[2] == 0
+        return(0)
+    elseif input[1] == 1 && input[2] == 0
+        return(1)
+    elseif input[1] == 1 && input[2] == 1
+        return(2)
+    elseif input[1] == 0 && input[2] == 1
+        return(3)
+    end
+end
+
+function check_same(input1,input2,indices,temp,L)
+    if temp == [1,0]
+        copy1 = vcat(input1[1:indices-1],input1[indices+1:indices+L-1],input1[indices+L+1:2*L])
+        copy2 = vcat(input2[1:indices-1],input2[indices+1:indices+L-1],input2[indices+L+1:2*L])
+        if copy1 == copy2 && [input2[indices],input2[indices+L]] == [1,1]
+            return(true)
+        else
+            return(false)
+        end
+    elseif temp == [1,1]
+        copy1 = vcat(input1[1:indices-1],input1[indices+1:indices+L-1],input1[indices+L+1:2*L])
+        copy2 = vcat(input2[1:indices-1],input2[indices+1:indices+L-1],input2[indices+L+1:2*L])
+        if copy1 == copy2 && [input2[indices],input2[indices+L]] == [1,0]
+            return(true)
+        else
+            return(false)
+        end
+    else
+        print("error")
+    end
+end
+
+function t_bs!(k,L)
+    bs_temp = Bool.(zeros(1,2*L))
+    bs_temp[1,k+L] = Bool(1)
+    return(Bool.(bs_temp))
+end
+
+function insert_row(matrix, row, index)
+    new_matrix = vcat(matrix[1:index, :], row, matrix[index+1:end, :])
+    return new_matrix
+end
+
+function insert_row!(matrix, row, index)
+    new_matrix = vcat(matrix[1:index, :], row, matrix[index+1:end, :])
+    return new_matrix
+end
+
+function logical_update!(phases_t,logicals_t,sgn,tempD,k,L)
+    tab_dim = 3*length(phases_t)
+    logicals_new = BitMatrix(undef,tab_dim,2*L)
+    phases_new = zeros(ComplexF64,tab_dim,1)
+    indices = 1:3:length(phases_new)
+    templ = [tempD[k],tempD[k+L]]
+    if templ == [1,0]
+        for j=1:size(logicals_t)[1]
+            logicals_new[indices[j],:] .= logicals_t[j,:]
+            phases_new[indices[j]] = phases_t[j]/2
+            tempq = copy(tempD)
+            tempq[k],tempq[k+L] = 1,0
+            tempq = logicals_t[j,:] .⊻ tempq
+            logicals_new[indices[j]+1,:] .= tempq
+            phases_new[indices[j]+1] = sgn*(sqrt(2)/2)*(phases_t[j]/2)*mult_pauli_phase!(logicals_t[j,:],tempq)
+            tempq = copy(tempD)
+            tempq[k],tempq[k+L] = 1,1
+            tempq = logicals_t[j,:] .⊻ tempq
+            logicals_new[indices[j]+2,:] .= tempq
+            phases_new[indices[j]+2] = sgn*(sqrt(2)/2)*(phases_t[j]/2)*mult_pauli_phase!(logicals_t[j,:],tempq)
+        end
+    elseif templ == [1,1]
+        for j=1:size(logicals_t)[1]
+            logicals_new[indices[j],:] .= logicals_t[j,:]
+            phases_new[indices[j]] = phases_t[j]/2
+            tempq = copy(tempD)
+            tempq[k],tempq[k+L] = 1,0
+            tempq = logicals_t[j,:] .⊻ tempq
+            logicals_new[indices[j]+1,:] .= tempq
+            phases_new[indices[j]+1] = sgn*(-sqrt(2)/2)*(phases_t[j]/2)*mult_pauli_phase!(logicals_t[j,:],tempq)
+            tempq = copy(tempD)
+            tempq[k],tempq[k+L] = 1,1
+            tempq = logicals_t[j,:] .⊻ tempq
+            logicals_new[indices[j]+2,:] .= tempq
+            phases_new[indices[j]+2] = sgn*(sqrt(2)/2)*(phases_t[j]/2)*mult_pauli_phase!(logicals_t[j,:],tempq)
+        end
+    else
+        println("error")
+    end
+    logicals_t = logicals_new
+    phases_t = phases_new
+    return(phases_t,logicals_t)
+end
+
+function update_logicals_2!(phases_t,logicals_t,r,tableau,k,L)
+    sgn = 1
+    tempD, sgn, r = Decomposition!(t_bs!(k,L),tableau,r,L)
+    phases_t,logicals_t = logical_update!(phases_t,logicals_t,sgn,tempD,k,L)
+    return(phases_t,logicals_t,r)
+end
+
+function update_logicals_3!(phases_t,logicals_t,are,tableau,k,L)
+    indices = [i for i=1:size(logicals_t)[1]]
+    indices2 = copy(indices)
+    phases_temp = copy(phases_t)
+    r = 0
+    while size(indices)[1] != 0
+        q = indices[1]
+        if [logicals_t[q,:][k],logicals_t[q,:][k+L]] == [1,0]
+            for j=1:size(indices)[1]
+                if check_same(logicals_t[q,:],logicals_t[indices[j],:],k,[1,0],L) == true
+                    phases_t[q] = ((norm(alp)^2 - norm(bet)^2)*phases_temp[q-r] - im*(conj(alp)*bet-alp*conj(bet))*phases_temp[indices[j]-r])
+                    phases_t[indices[j]] = (((norm(alp)^2 - norm(bet)^2))*phases_temp[indices[j]-r] + im*(conj(alp)*bet-alp*conj(bet))*phases_temp[q-r])
+                    indices = indices[setdiff(1:size(indices,1),[1,j]),:]
+                    break
+                end
+                if j == size(indices)[1]
+                    phases_t[q] = (norm(alp)^2 - norm(bet)^2)*phases_temp[q-r]
+                    phases_t = insert_row(phases_t,im*(conj(alp)*bet - alp*conj(bet))*phases_temp[q-r],q)
+                    temp = copy(logicals_t[q,:])
+                    temp[k],temp[k+L] = 1,1
+                    logicals_t = insert_row(logicals_t,transpose(temp),q)
+                    indices = indices[setdiff(1:size(indices,1),[1]),:]
+                    r = r + 1
+                    indices .= indices .+ 1
+                end
+            end
+        elseif [logicals_t[q,:][k],logicals_t[q,:][k+L]] == [1,1]
+            for j=1:size(indices)[1]
+                if check_same(logicals_t[q,:],logicals_t[indices[j],:],k,[1,1],L) == true
+                    phases_t[q] = (((norm(alp)^2 - norm(bet)^2))*phases_temp[q-r] + im*(conj(alp)*bet-alp*conj(bet))*phases_temp[indices[j]-r])
+                    phases_t[indices[j]] = (((norm(alp)^2 - norm(bet)^2))*phases_temp[indices[j]-r] - im*(conj(alp)*bet-alp*conj(bet))*phases_temp[q-r])
+                    indices = indices[setdiff(1:size(indices,1),[1,j]),:]
+                    break
+                end
+                if j == size(indices)[1]
+                    phases_t[q] = (norm(alp)^2 - norm(bet)^2)*phases_temp[q-r]
+                    phases_t = insert_row(phases_t,-im*(conj(alp)*bet - alp*conj(bet))*phases_temp[q-r],q)
+                    temp = copy(logicals_t[q,:])
+                    temp[k],temp[k+L] = 1,0
+                    logicals_t = insert_row(logicals_t,transpose(temp),q)
+                    indices = indices[setdiff(1:size(indices,1),[1]),:]
+                    r = r + 1
+                    indices .= indices .+ 1
+                end
+            end
+        elseif [logicals_t[q,:][k],logicals_t[q,:][k+L]] == [0,1]
+            indices = indices[setdiff(1:size(indices,1),[1]),:]
+        else
+            indices = indices[setdiff(1:size(indices,1),[1]),:]
+        end
+    end
+    return(phases_t,logicals_t)
+end
+
+function update_logicals_4!(phases_t,logicals_t,r,tableau,k,L)
+    tempD,sgn,r = Decomposition!(t_bs!(k,L),tableau,r,L)
+    for j=1:length(phases_t)
+        temp = [logicals_t[j,k],logicals_t[j,k+L]]
+        if temp == [1,0] || temp == [1,1]
+            logicals_t[j,:] = logicals_t[j,:] .⊻ tempD
+            phases_t[j] = sgn*phases_t[j]*mult_pauli_phase!(logicals_t[j,:],tempD)
+        end
+    end
+    phases_t,logicals_t = logical_compression!(phases_t,logicals_t)
+    phases_t,logicals_t = logical_update!(phases_t,logicals_t,sgn,tempD,k,L)
+    return(phases_t,logicals_t,r)
+end
+
+function t_gate!(tableau,logicals_t,phases_t,r,k,L)
+    m = 0
+    n = 0
+    for q=1:size(logicals_t)[1]
+        if check_c_tgate!(logicals_t[q,:],k) == Bool(0)
+            m = q
+            break
+        end
+    end
+    for q=L+1:L+r
+        if check_c_tgate!(tableau[q,1:2*L],k) == Bool(0)
+            n = q
+            break
+        end
+    end
+    if n!=0 && m==0
+        phases_t,logicals_t,r = update_logicals_2!(phases_t,logicals_t,r,tableau,k,L)
+    elseif m!=0 && n == 0
+        phases_t,logicals_t = update_logicals_3!(phases_t,logicals_t,r,tableau,k,L)
+    elseif n!=0 && m!=0
+        phases_t,logicals_t,r = update_logicals_4!(phases_t,logicals_t,r,tableau,k,L)
+    end
+    phases_t,logicals_t = logical_compression!(phases_t,logicals_t)
+    return(phases_t,logicals_t,r)
+end
+
+function log_to_op(bitstring)
+    l = Int64(length(bitstring)/2)
+    if [bitstring[1],bitstring[1+l]] == [1,1]
+        nul = s_y
+    elseif [bitstring[1],bitstring[1+l]] == [1,0]
+        nul = s_x
+    elseif [bitstring[1],bitstring[1+l]] == [0,1]
+        nul = s_z
+    else
+        nul = Id(2)
+    end
+    for q=2:L
+        if [bitstring[q],bitstring[q+l]] == [1,1]
+            nul = kron(nul,s_y)
+        elseif [bitstring[q],bitstring[q+l]] == [1,0]
+            nul = kron(nul,s_x)
+        elseif [bitstring[q],bitstring[q+l]] == [0,1]
+            nul = kron(nul,s_z)
+        else
+            nul = kron(nul,Id(2))
+        end
+    end
+    return(nul)
+end
+
+function stab_to_op(bitstring)
+    nul = log_to_op(bitstring[1:2*L])
+    if bitstring[2*L+1] == 0
+        return((Id(2^L)+nul)/2)
+    elseif bitstring[2*L+1] == 1
+        return((Id(2^L)-nul)/2)
+    end
+    return(nul)
+end
+
+function convert_to_density_rep(phases,logicals,tableau)
+    nul1 = zeros(Float64,2^L,2^L)
+    for q = 1:size(logicals)[1]
+        nul1 = nul1 + phases[q]*log_to_op(logicals[q,:])
+    end
+    nul2 = Id(2^L)
+    for q = 1:r
+        nul2 = nul2*stab_to_op(tableau[L+q,:])
+    end
+    return(nul1*nul2)
+end
+
+function CZ_gate!(state,lspin,rspin)
+    nl,nr = minimum([lspin,rspin]),maximum([lspin,rspin])
+    dimen = length(state)
+    state .= state/norm(state)
+    A = zeros(ComplexF64,4,2^(nspin-2))
+    f = zeros(Int64,4,2^(nspin-2))
+    for j in 1:dimen
+        l = tob10(splicee(ket[j],nl,nr))
+        m = tob10(splicer(ket[j],nl,nr))
+        A[l+1,m+1] = state[j]
+        f[l+1,m+1] = j
+    end
+    A = CZ*A
+    for i = 1:size(A)[1]
+        for j = 1:size(A)[2]
+            state[f[i,j]] = A[i,j]
+        end
+    end
+    state .= state/norm(state)
+    return(state)
+end
+
+function one_qubit_gate!(statein,U,sp)
+    i = L - sp + 1
+    psi_temp = zeros(ComplexF64,2)
+    for j = 1:2^(L-i), k = 1+2^(i)*(j-1):(2^i)*(j-1)+2^(i-1)
+        ind1 = k
+        ind2 = k+2^(i-1)
+        psi_temp[1] = statein[ind1]
+        psi_temp[2] = statein[ind2]
+        psi_temp = U*psi_temp
+        statein[ind1] = psi_temp[1]
+        statein[ind2] = psi_temp[2]
+    end
+    statein .= statein/norm(statein)
+end
+
+function two_qubit_gate!(state,U,nl,nr)
+    A = zeros(ComplexF64,4,2^(L-2))
+    f = zeros(Int64,4,2^(L-2))
+    for j in 1:dimen
+        l = tob10(splicee(ket[j],nl,nr))
+        m = tob10(splicer(ket[j],nl,nr))
+        A[l+1,m+1] = state[j]
+        f[l+1,m+1] = j
+    end
+    A = U*A
+    for i = 1:size(A)[1]
+        for j = 1:size(A)[2]
+            state[f[i,j]] = A[i,j]
+        end
+    end
+    return(state/norm(state))
+end
+
+function single_gate_check!(state,gate,qubit,tableau,logicals_t,phases_t)
+    one_qubit_gate!(state,c_gates[gate],qubit)
+    phases_t,logicals_t = single_cliff_unitary(logicals_t,phases_t,gate,qubit,tableau,L)
+end
+
+function double_gate_check!(state,gate,qubit1,tableau,logicals_t,phases_t)
+    two_qubit_gate!(state,two_gates[gate],qubit1)
+    if qubit1 != L
+        two_cliff_unitary(logicals_t,phases_t,gate,qubit1,qubit1+1,tableau,L)
+    else
+        two_cliff_unitary(logicals_t,phases_t,gate,1,L,tableau,L)
+    end
+end
+
+function t_gate_check!(state,tableau,qubit,logicals_t,phases_t)
+    one_qubit_gate!(state,T,qubit)
+    t_gate!(tableau,logicals_t,phases_t,qubit)
+end
+
+function gen_rand_zbs(len)
+    x = []
+    for i=1:len
+        push!(x,gen_single_randz_bs())
+    end
+    return x
+end
+
+function gen_single_randz_bs()
+    k = rand(L+1:2*L)
+    temp = Bool.([0 for i in range(1,2*L)])
+    temp[k] = Bool.(1)
+    return(temp)
+end
+
+function gen_single_locz_bs(k,L)
+    temp = Bool.([0 for i in range(1,2*L)])
+    temp[k+L] = Bool.(1)
+    return(temp)
+end
+
+function gen_single_locx_bs(k,L)
+    temp = Bool.([0 for i in range(1,2*L)])
+    temp[k] = Bool.(1)
+    return(temp)
+end
+
+function mult_pauli_phase!(bitstring1,bitstring2)
+    phase = 1
+    lenth = length(bitstring1)/2
+    for j=1:Int64(lenth)
+        temp = tuple_ar!([bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]],[bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]])
+        if [bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]] != [bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]] && [bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]] != [0 0] && [bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]] != [0 0]
+            phase = im*phase*levi_civita(temp[1],temp[2])
+        end
+    end
+    return(phase)
+end
+
+function update_bs_2(pauli,phases_t,logicals_t,l,L)
+    r = l
+    for i=l:size(logicals_t)[1]
+        if check_c(pauli,logicals_t[r,:],L) != 0
+            logicals_t = remove_row!(logicals_t,r)
+            phases_t = remove_row!(phases_t,r)
+        else
+            r = r + 1
+        end
+    end
+    return(phases_t,logicals_t)
+end
+
+function update_bs_3(pauli,phases_t,logicals_t,tableau,r,L)
+    tempD, sgn, r = Decomposition!(pauli,tableau,r,L)
+    for i=1:size(logicals_t)[1]
+        if check_c(pauli,logicals_t[i,:],L) != 0
+            logicals_t[i,:] .= logicals_t[i,:] .⊻ tempD
+            phases_t[i] = mult_pauli_phase!(logicals_t[i,:],tempD)*phases_t[i]*sgn
+        end
+    end
+    phases_t = (phases_t/2)
+    return(phases_t,logicals_t,r)
+end
+
+function string_to_bool(string)
+    temp = Bool.(zeros(Int64,2*length(string)))
+    ls = length(string)
+    for i=1:ls
+        if string[i] == "I"
+            temp[i],temp[i+ls] = Bool.([0 0])
+        elseif string[i] == "s_x"
+            temp[i],temp[i+ls] = Bool.([1 0])
+        elseif string[i] == "s_y"
+            temp[i],temp[i+ls] = Bool.([1 1])
+        elseif string[i] == "s_z"
+            temp[i],temp[i+ls] = Bool.([0 1])
+        end
+    end
+    return transpose(temp)
+end
+
+function mult_pauli_strings(string1,string2,coeffs1,coeffs2)
+    temp1 = []
+    phases_temp = []
+    for i=1:length(string1)
+        for j=1:length(string2)
+            push!(temp1,logicals_to_string(string_to_bool(string1[i]) .⊻ string_to_bool(string2[j])))
+            push!(phases_temp,mult_pauli_phase!(string_to_bool(string1[i]),string_to_bool(string2[j]))*coeffs1[i]*coeffs2[j])
+        end
+    end
+    return(temp1,phases_temp)
+end
+
+function present_mps(input)
+    for i=1:length(input[1])
+    end
+end
+
+function mult_pauli_phase!(bitstring1,bitstring2)
+    phase = 1
+    lenth = length(bitstring1)/2
+    for j=1:Int64(lenth)
+        temp = tuple_ar!([bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]],[bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]])
+        if [bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]] != [bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]] && [bitstring1[Int64(j)] bitstring1[Int64(j+lenth)]] != [0 0] && [bitstring2[Int64(j)] bitstring2[Int64(j+lenth)]] != [0 0]
+            phase = im*phase*levi_civita(temp[1],temp[2])
+        end
+    end
+    return(phase)
+end
+
+function remove_row!(matrix, row_index)
+    matrix = matrix[setdiff(1:size(matrix, 1), row_index), :]
+end
+
+function prob_msm_case12(phases_t,logicals_t,tableau,r,pauli,L)
+    prob = 0
+    ptemp = prob_pos_bs!(pauli,tableau,L,r)
+    tr_val = 0
+    tableauc = deepcopy(tableau)
+    r_copy = copy(r)
+    if ptemp == 0
+        return(0)
+    else
+        r = Measure_Pauli_Outcome!(pauli,tableauc,Bool.(0),L,r)
+        for i=1:size(phases_t)[1]
+            if check_c(logicals_t[i,:],pauli,L) == 0
+                prob += phases_t[i]*ptemp*(2*prob_pos_bs!(logicals_t[i,:],tableauc,L,r)-1)*2^(L-r_copy)
+                tr_val += phases_t[i]*(2*prob_pos_bs!(logicals_t[i,:],tableauc,L,r)-1)*2^(L-r_copy)
+            end
+        end
+    end
+    r = r_copy
+    return(prob)
+end
+
+function prob_msm_case3(pauli,phases_t,logicals_t,tableau,r,L)
+    prob = 0
+    phases_t,logicals_t,r = update_bs_3(pauli,phases_t,logicals_t,tableau,r,L)
+    ptemp = prob_pos_bs!(pauli,tableau,L,r)
+    tr_val = 0
+    if ptemp == 0
+        return(0)
+    else
+        for i=1:size(phases_t)[1]
+            if check_c(logicals_t[i,:],pauli,L) == 0
+                prob += phases_t[i]*ptemp*(2*prob_pos_bs!(logicals_t[i,:],tableau,L,r)-1)*2^(L-r)
+                tr_val += phases_t[i]*(2*prob_pos_bs!(logicals_t[i,:],tableau,L,r)-1)*2^(L-r)
+            end
+        end
+    end
+    return(phases_t,logicals_t,r,prob)
+end
+
+function norm_tr!(phases_t,logicals_t,tableau,r,L)
+    trace_t = 0
+    for q=1:size(phases_t)[1]
+        trace_t = trace_t +  phases_t[q]*(2*prob_pos_bs!(logicals_t[q,:],tableau,L,r)-1)
+    end
+    return(trace_t*(2^(L-r)))
+end
+
+function count_zeros(vector)
+    count = 0
+    for i=1:length(vector)
+        if norm(vector[i]) < 1e-3
+            count += 1
+        end
+    end
+    return(count)
+end
+
+function state0!(tableau::BitMatrix,L::Int)
+    tableau[:] = zeros(Int64, 2*L+1, 2*L+1)
+    for i in 1:2*L
+        tableau[i,i] = 1
+    end
+end
+
+function state0x!(tableau::BitMatrix,L::Int)
+    tableau[:] = zeros(Int64, 2*L+1, 2*L+1)
+    for i in 1:L
+        tableau[i,i+L] = 1
+    end
+    for i in L+1:2*L
+        tableau[i,i-L] = 1
+    end
+end
+
+function Decomposition!(bitstring,tableauk::BitMatrix,r::Int,L::Int)
+    p = 0
+    sgn = 1
+    for g in (L+1):L+r
+        if check_c(tableauk[g,1:2*L],bitstring,L) == 2
+            if tableauk[g,2*L+1] == Bool.(1)
+                sgn = -1
+            end
+            p = g
+            break
+        end
+    end
+    if p > 0
+        for g in 1:2*L
+            if check_c(tableauk[g,1:2*L],bitstring,L) == 2 && p != g && p != g-L
+                rowsum!(g,p,tableauk,L)
+            end
+        end
+        tableauk[p-L,1:2*L] = bitstring
+        swap_rows!(tableauk, L+r, p)
+        swap_rows!(tableauk,p-L,r)
+        r = r - 1
+    end
+    return(tableauk[L+r+1,1:2*L],sgn,r)
+end
+
+function logicals_to_string(logicals)
+    L = Int64(size(logicals)[2]/2)
+    temp = Matrix(undef, size(logicals)[1],L)
+    for q=1:size(temp)[1]
+        for l=1:size(temp)[2]
+            if [logicals[q,l],logicals[q,l+L]] == Bool.([0,0])
+                temp[q,l] = "I"
+            elseif [logicals[q,l],logicals[q,l+L]] == Bool.([1,0])
+                temp[q,l] = "s_x"
+            elseif [logicals[q,l],logicals[q,l+L]] == Bool.([0,1])
+                temp[q,l] = "s_z"
+            elseif [logicals[q,l],logicals[q,l+L]] == Bool.([1,1])
+                temp[q,l] = "s_y"
+            end
+        end
+    end
+    return(temp)
+end
+
+function Id_power(m)
+    temp = Id1
+    for i=1:m-1
+        temp = kron(temp,Id1)
+    end
+    return(temp)
+end
+
+function gen_rand_bs(len)
+    x = []
+    for i=1:len
+        push!(x,Bool.([rand(0:1) for i in range(1,2*L)]))
+    end
+    return x
+end
+
+function tob10(vecs)
+    join(vecs)
+    parse(Int, join(vecs); base = 2)
+end
+
+function splicee(state,left,right)
+    statevo = zeros(2)
+    statevo[1] = state[left]
+    statevo[2] = state[right]
+    return round.(Int,statevo)
+end
+
+function splicer(state,left,right)
+    statevo = zeros(length(state)-2)
+    jp = 0
+    for i=1:left-1
+        jp = jp + 1
+        statevo[jp] = state[i]
+    end
+    for i=left+1:right-1
+        jp = jp + 1
+        statevo[jp] = state[i]
+    end
+    for i=right+1:length(state)
+        jp = jp + 1
+        statevo[jp] = state[i]
+    end
+    return round.(Int,statevo)
+end
+
+function binaryvec(n)
+    ket0 = string(n, base=2, pad = L)
+    for k in range(1,length(ket0))
+        kettemp[k] = parse(Int64,ket0[k:k]);
+    end
+    return kettemp
+end
+
+function swapcol!(x,i,j)
+    for k in axes(x,1)
+        idata = x[k,i]
+        x[k,i] = x[k,j]
+        x[k,j] = idata
+    end
+end
+
+function swap_rows!(Matrixin,rowA,rowB)
+    Matrixin[rowA,:],Matrixin[rowB,:] = Matrixin[rowB,:],Matrixin[rowA,:]
+end
+
+function gen_rand_zbs(len)
+    x = []
+    for i=1:len
+        push!(x,gen_single_randz_bs())
+    end
+    return x
+end
+
+function gen_single_randz_bs()
+    k = rand(L+1:2*L)
+    temp = Bool.([0 for i in range(1,2*L)]))
+    temp[k] = Bool.(1)
+    return(temp)
+end
+
+function check_com_relns(tableau,r)
+    for q=1:L
+        for l=q+1:q+L-1
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+        if check_c(tableau[q,:],tableau[q+L,:]) == 0
+            return(["error",[q,q+L]])
+        end
+        for l=q+L+1:2*L
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+    end
+    for q=L+1:2*L
+        for l=q+L:2*L
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+    end
+end
+
+function remove_column!(matrixz,column)
+    matrixz = matrixz[1:size(matrixz)[1],[i for i in 1:size(matrixz)[2] if i != column]]
+    matrixz
+end
+
+function row_echelon!(M::BitMatrix,r)
+    K = Int64((size(M)[1]-1)/2) + Int64(r)
+    N = div(size(M,2),2)
+    Ku = Int64((size(M)[1]-1)/2 + 1)
+    Nl = 1
+    while ( Nl <= N && Ku <= K)
+        num_x_ops = 0
+        num_y_ops = 0
+        num_z_ops = 0
+        k1 = 0
+        k1_op = ""
+        k2 = 0
+        k2_op = ""
+        for i in Ku:K
+            if M[i,Nl] == 1 && M[i,Nl + N] == 0
+                num_x_ops += 1
+                if k1 == 0 && k1_op == ""
+                    k1 = i
+                    k1_op = "x"
+                end
+                if (k1_op == "y" || k1_op == "z") && k2 == 0 && k2_op == ""
+                    k2 = i
+                    k2_op = "x"
+                end
+            elseif M[i,Nl] == 0 && M[i,Nl + N] == 1
+                num_z_ops += 1
+                if k1 == 0 && k1_op == ""
+                    k1 = i
+                    k1_op = "z"
+                end
+                if (k1_op == "y" || k1_op == "x") && k2 == 0 && k2_op == ""
+                    k2 = i
+                    k2_op = "z"
+                end
+            elseif M[i,Nl] == 1 && M[i,Nl + N] == 1
+                num_y_ops += 1
+                if k1 == 0 && k1_op == ""
+                    k1 = i
+                    k1_op = "y"
+                end
+                if (k1_op == "x" || k1_op == "z") && k2 == 0 && k2_op == ""
+                    k2 = i
+                    k2_op = "y"
+                end
+            end
+        end
+        if (num_x_ops + num_y_ops + num_z_ops == 0)
+            Nl += 1
+        elseif (num_x_ops > 0 && (num_y_ops + num_z_ops == 0)) || (num_y_ops > 0 && (num_x_ops + num_z_ops == 0)) || (num_z_ops > 0 && (num_y_ops + num_x_ops == 0))
+            one_kind_pauli(M,Ku,k1,Nl,K,N)
+            Nl += 1
+            Ku += 1
+        else
+            two_kind_pauli(M,Ku,k1,k2,Nl,K,N)
+            Nl += 1
+            Ku += 2
+        end
+    end
+    return(M)
+end
+
+function one_kind_pauli(M::BitMatrix,Ku::Int,k::Int,Nl::Int,K::Int,N::Int)
+    el = Int64((size(M)[1]-1)/2)
+    if k != Ku
+        for j = 1:size(M,2)
+            M[k,j],M[Ku,j] = M[Ku,j],M[k,j]
+            M[k-N,j],M[Ku-N,j] = M[Ku-N,j],M[k-N,j]
+        end
+    end
+    for i in (Ku+1):K
+        if M[Ku,Nl] == M[i,Nl] && M[Ku,Nl+N] == M[i,Nl+N]
+            rowsum!(i,Ku,M,el)
+            rowsum!(Ku-N,i-N,M,el)
+        end
+    end
+end
+
+function two_kind_pauli(M::BitMatrix,Ku::Int,k1::Int,k2::Int,Nl::Int,K::Int,N::Int)
+    el = Int64((size(M)[1]-1)/2)
+    if k1 != Ku
+        for j = 1:size(M,2)
+            M[k1,j],M[Ku,j] = M[Ku,j],M[k1,j]
+            M[k1-N,j],M[Ku-N,j] = M[Ku-N,j],M[k1-N,j]
+        end
+    end
+    if k2 != Ku+1
+        for j = 1:size(M,2)
+            M[k2,j],M[Ku+1,j] = M[Ku+1,j],M[k2,j]
+            M[k2-N,j],M[Ku+1-N,j] = M[Ku+1-N,j],M[k2-N,j]
+        end
+    end
+    for i in (Ku+2):K
+        if M[i,Nl] == 0 && M[i,Nl+N] == 0
+        elseif M[Ku,Nl] == M[i,Nl] && M[Ku,Nl+N] == M[i,Nl+N]
+            rowsum!(i,Ku,M,el)
+            rowsum!(Ku-N,i-N,M,el)
+        elseif M[Ku+1,Nl] == M[i,Nl] && M[Ku+1,Nl+N] == M[i,Nl+N]
+            rowsum!(i,Ku+1,M,el)
+            rowsum!(Ku+1-N,i-N,M,el)
+        else
+            rowsum!(i,Ku,M,el)
+            rowsum!(Ku-N,i-N,M,el)
+            rowsum!(i,Ku+1,M,el)
+            rowsum!(Ku+1-N,i-N,M,el)
+        end
+    end
+end
+
+function row_swap!(tableauk,qubits)
+    BitNotQubit = filter(e-> e ∉ qubits,Vector(1:L))
+    matrix_a1 = tableauk[:,BitNotQubit]
+    matrix_a2 = tableauk[:,BitNotQubit .+ L]
+    BitQubit = filter(e->e ∈ qubits,Vector(1:L))
+    matrix_b1 = tableauk[:,BitQubit]
+    matrix_b2 = tableauk[:,BitQubit .+ L]
+    if size(tableauk)[2] % 2 != 0
+        matrixc = tableauk[:,2*L+1]
+        tableauk = hcat(matrix_b1,matrix_a1,matrix_b2,matrix_a2,matrixc)
+    else
+        tableauk = hcat(matrix_b1,matrix_a1,matrix_b2,matrix_a2)
+    end
+    return(tableauk)
+end
+
+function map2q(bit)
+    if bit == 0
+        return([1,0])
+    else
+        return([0,1])
+    end
+end
+
+function convert_to_density_rep(phases,logicals,tableau,are)
+    nul1 = zeros(Float64,Int64(2^((size(tableau)[1]-1)/2)),Int64(2^((size(tableau)[1]-1)/2)))
+    for q = 1:size(logicals)[1]
+        nul1 = nul1 + phases[q]*log_to_op(logicals[q,:])
+    end
+    nul2 = Id(2^Int64((size(tableau)[2]-1)/2))
+    for q = 1:are
+        nul2 = nul2*stab_to_op(tableau[Int64((size(tableau)[2]-1)/2)+q,:])
+    end
+    return(nul1*nul2)
+end
+
+function check_c(bs1,bs2,el)
+    no = Bool.(0)
+    for q=1:el
+        no = Bool.(no .⊻ Bool.(bs1[q]*bs2[el+q]))
+    end
+    for q=1:el
+        no = Bool.(no .⊻ Bool.(bs1[el+q]*bs2[q]))
+    end
+    if no == Bool(0)
+        return(0)
+    elseif no == Bool(1)
+        return(2)
+    else
+        println("error")
+    end
+end
+
+function check_commute(logical,tableauq,r_copy)
+    el = Int64((size(tableauq)[2]-1)/2)
+    for q=el+1:el+r_copy
+        if check_c(logical,tableauq[q,1:size(tableauq)[2]-1],el) != 0
+            return(Bool.(1))
+        end
+    end
+    return(Bool.(0))
+end
+
+function prob_pos_bs!(bitstring,tableauk::BitMatrix,el::Int,are)
+    p = 0
+    tableau = copy(tableauk)
+    for g in (el+1):el+are
+        if check_c(tableau[g,1:2*el],bitstring,el) == 2
+            p = g
+            break
+        end
+    end
+    if p > 0
+         return(1/2)
+    else
+        m = 0
+        indices = vcat([i for i in range(are+1,el)],[i for i in range(el+are+1,2*el)])
+        for g=1:length(indices)
+            if check_c(tableau[indices[g],1:2*el],bitstring,el) == 2
+                m = indices[g]
+                break
+            end
+        end
+        if m > 0
+            return(1/2)
+        else
+            tableau[2*el+1,:] .= 0
+            for g=1:are
+                if check_c(tableau[g,1:2*el],bitstring,el) == 2
+                    rowsum!(2*el+1,g+el,tableau,el)
+                end
+            end
+            if tableau[2*el+1,2*el+1] == 0
+                return(1)
+            else
+                return(0)
+            end
+        end
+    end
+end
+
+function check_c(bs1,bs2,el)
+    no = Bool.(0)
+    for q=1:el
+        no = Bool.(no .⊻ Bool.(bs1[q]*bs2[el+q]))
+    end
+    for q=1:el
+        no = Bool.(no .⊻ Bool.(bs1[el+q]*bs2[q]))
+    end
+    if no == Bool(0)
+        return(0)
+    elseif no == Bool(1)
+        return(2)
+    else
+        println("error")
+    end
+end
+
+function check_commute(logical,tableauq,r_copy)
+    el = Int64((size(tableauq)[2]-1)/2)
+    for q=el+1:el+r_copy
+        if check_c(logical,tableauq[q,1:size(tableauq)[2]-1],el) != 0
+            return(Bool.(1))
+        end
+    end
+    return(Bool.(0))
+end
+
+function remove_rows!(org_matrix,rows)
+    rows_to_keep = setdiff(1:size(org_matrix, 1), rows)
+    return(org_matrix[rows_to_keep, :])
+end
+
+function prob_dirty_bs!(bitstring,tableau_den)
+    temp1 = log_to_op(bitstring)
+    if tr(temp1*tableau_den) == 0
+        return(1/2)
+    elseif real(tr(temp1*tableau_den)) > 0
+        return(1)
+    elseif real(tr(temp1*tableau_den)) < 0
+        return(0)
+    end
+end
+
+function partial_tr_cs2!(logical,phase,qubits,tableauq)
+    logical = row_swap!(transpose(logical),qubits)
+    r_copy = copy(r)
+    qr = L + 1
+    for k=1:length(qubits)
+        if r_copy == 0
+            if transpose(vcat(logical[1:length(qubits)-k+1],logical[qr:length(qubits)-k+qr])) == transpose(Bool.(zeros(Float64,2*(length(qubits)-k+1))))
+                logical = transpose(remove_rows!(transpose(logical),vcat([i for i=1:length(qubits)-k+1],[i for i=qr:length(qubits)-k+qr])))
+                tableauq = Id(2*(L-length(qubits))+1)
+                phase = phase*2^(length(qubits)-(k-1))
+                return([logical,phase,tableauq,r_copy])
+            else
+                return("nuthing")
+            end
+        end
+        if [tableauq[qr,1],tableauq[qr,qr]] == Bool.([0,0])
+            tableauq = remove_column!(tableauq,1)
+            tableauq = remove_column!(tableauq,qr-1)
+            tableauq = remove_row!(tableauq,qr-1)
+            tableauq = remove_row!(tableauq,qr+r_copy-1)
+            if [logical[1],logical[qr]] != Bool.([0,0])
+                return("nuthing")
+            else
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                qr = qr - 1
+                phase = phase*2
+            end
+        elseif [tableauq[qr,1],tableauq[qr,qr]] != Bool.([0, 0]) && [tableauq[qr+1,1],tableauq[qr+1,qr]] != Bool.([0, 0]) && r_copy > 1
+            if vcat(tableauq[1,2:qr-1],tableauq[1,qr+1:end-1]) == vcat(tableauq[qr,2:qr-1],tableauq[qr,qr+1:end-1]) && vcat(tableauq[2,2:qr-1],tableauq[2,qr+1:end-1]) == vcat(tableauq[qr+1,2:qr-1],tableauq[qr+1,qr+1:end-1])
+                rowsum!(qr+1,qr+2,tableauq,qr-1)
+                rowsum!(3,2,tableauq,qr-1)
+            end
+            if [logical[1],logical[qr]] == Bool.([0, 0])
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+            elseif [logical[1],logical[qr]] .⊻ [tableauq[qr,1],tableauq[qr,qr]] == Bool.([0, 0])
+                phase = phase*mult_pauli_phase!(logical,transpose(tableauq[qr,1:2*(qr-1)]))
+                if tableauq[qr,2*(qr-1)+1] == Bool.(1)
+                    phase = -1*phase
+                end
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+                logical = logical .⊻ transpose(tableauq[qr,1:2*(qr-2)])
+            elseif [logical[1],logical[qr]] .⊻ [tableauq[qr+1,1],tableauq[qr+1,qr]] == Bool.([0, 0])
+                phase = phase*mult_pauli_phase!(logical,transpose(tableauq[qr+1,1:2*(qr-1)]))
+                if tableauq[qr+1,2*(qr-1)+1] == Bool.(1)
+                    phase = -1*phase
+                end
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+                logical = logical .⊻ transpose(tableauq[qr+1,1:2*(qr-2)])
+            else
+                phase = phase*mult_pauli_phase!(logical,transpose(tableauq[qr,1:2*(qr-1)]))
+                logical = logical .⊻ transpose(tableauq[qr,1:2*(qr-1)])
+                phase = phase*mult_pauli_phase!(logical,transpose(tableauq[qr+1,1:2*(qr-1)]))
+                logical = logical .⊻ transpose(tableauq[qr+1,1:2*(qr-1)])
+                if tableauq[qr,2*(qr-1)+1] == Bool.(1)
+                    phase = -1*phase
+                end
+                if tableauq[qr+1,2*(qr-1)+1] == Bool.(1)
+                    phase = -1*phase
+                end
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+            end
+            phase = phase/2
+            if tableauq[2,1:end-1] != tableauq[qr+1,1:end-1]
+                swap_rows!(tableauq,2,r_copy)
+                swap_rows!(tableauq,qr+1,qr-1+r_copy)
+                tableauq = remove_row!(tableauq,qr)
+                tableauq = remove_row!(tableauq,1)
+                tableauq = row_echelon!(tableauq,r_copy-2)
+            elseif tableauq[1,1:end-1] != tableauq[qr,1:end-1]
+                swap_rows!(tableauq,1,r_copy)
+                swap_rows!(tableauq,qr,qr-1+r_copy)
+                tableauq = remove_row!(tableauq,qr+1)
+                tableauq = remove_row!(tableauq,2)
+                tableauq = row_echelon!(tableauq,r_copy-2)
+            else
+                println("error")
+            end
+            qr = qr - 1
+            r_copy = r_copy - 2
+        else
+            if [logical[1],logical[qr]] == Bool.([0, 0])
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+            elseif [logical[1],logical[qr]] .⊻ [tableauq[qr,1],tableauq[qr,qr]] == Bool.([0, 0])
+                phase = phase*mult_pauli_phase!(logical,transpose(tableauq[qr,1:2*(qr-1)]))
+                if tableauq[qr,2*(qr-1)+1] == Bool.(1)
+                    phase = -1*phase
+                end
+                tableauq = remove_column!(tableauq,1)
+                tableauq = remove_column!(tableauq,qr-1)
+                logical = remove_column!(logical,1)
+                logical = remove_column!(logical,qr-1)
+                logical = logical .⊻ transpose(tableauq[qr,1:2*(qr-2)])
+            else
+                return("nuthing")
+            end
+            tableauq = remove_row!(tableauq,qr)
+            tableauq = remove_row!(tableauq,1)
+            r_copy = r_copy - 1
+            qr = qr - 1
+        end
+    end
+    return([logical,phase,tableauq,r_copy])
+end
+
+function convert_to_density_rep(phases,logicals,tableau,are)
+    nul1 = zeros(Float64,Int64(2^((size(tableau)[1]-1)/2)),Int64(2^((size(tableau)[1]-1)/2)))
+    for q = 1:size(logicals)[1]
+        nul1 = nul1 + phases[q]*log_to_op(logicals[q,:])
+    end
+    nul2 = Id(2^Int64((size(tableau)[2]-1)/2))
+    for q = 1:are
+        nul2 = nul2*stab_to_op(tableau[Int64((size(tableau)[2]-1)/2)+q,:])
+    end
+    return(nul1*nul2)
+end
+
+function check_com_relns(tableau,r)
+    for q=1:L
+        for l=q+1:q+L-1
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+        if check_c(tableau[q,:],tableau[q+L,:]) == 0
+            return(["error",[q,q+L]])
+        end
+        for l=q+L+1:2*L
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+    end
+    for q=L+1:2*L
+        for l=q+L:2*L
+            if check_c(tableau[q,:],tableau[l,:]) != 0
+                return(["error",[q,l]])
+            end
+        end
+    end
+end
+
+function Id(n)
+    matrixq = zeros(Float64,n,n)
+    for i=1:n
+        matrixq[i,i] = 1
+    end
+    return(matrixq)
+end
+
+function remove_row!(matrix, row_index)
+    matrix = matrix[setdiff(1:size(matrix, 1), row_index), :]
+    return(matrix)
+end
+
+function binaryvec(n,right)
+    ket0 = string(n, base=2, pad = right)
+    for k in range(1,length(ket0))
+        kettemp[k] = parse(Int64,ket0[k:k]);
+    end
+    return kettemp
+end
+
+function map2q(bit)
+    if bit == 0
+        return([1;0])
+    else
+        return([0;1])
+    end
+end
+
+function mutual_information(qubitA,qubitB)
+    temp = sort([qubitA,qubitB])
+    qubitA = temp[1]
+    qubitB = temp[2]
+    return(compute_entanglement3(logicals_t,phases_t,tableau,vcat([i for i=1:qubitA-1],[i for i=qubitA+1:L]),r,alph) + compute_entanglement3(logicals_t,phases_t,tableau,vcat([i for i=1:qubitB-1],[i for i=qubitB+1:L]),r,alph) - compute_entanglement3(logicals_t,phases_t,tableau,vcat([i for i=1:qubitA-1],[i for i=qubitA+1:qubitB-1],[i for i=qubitB+1:L]),r,alph))
+end
+
+function log_to_op(bitstring)
+    l = Int64(length(bitstring)/2)
+    if [bitstring[1],bitstring[1+l]] == [1,1]
+        nul = s_y
+    elseif [bitstring[1],bitstring[1+l]] == [1,0]
+        nul = s_x
+    elseif [bitstring[1],bitstring[1+l]] == [0,1]
+        nul = s_z
+    else
+        nul = Id(2)
+    end
+    for q=2:l
+        if [bitstring[q],bitstring[q+l]] == [1,1]
+            nul = kron(nul,s_y)
+        elseif [bitstring[q],bitstring[q+l]] == [1,0]
+            nul = kron(nul,s_x)
+        elseif [bitstring[q],bitstring[q+l]] == [0,1]
+            nul = kron(nul,s_z)
+        else
+            nul = kron(nul,Id(2))
+        end
+    end
+    return(nul)
+end
+
+function stab_to_op(bitstring)
+    nul = log_to_op(bitstring[1:length(bitstring)-1])
+    if bitstring[length(bitstring)] == 0
+        return((Id(2^Int64((length(bitstring)-1)/2))+nul)/2)
+    elseif bitstring[length(bitstring)] == 1
+        return((Id(2^Int64((length(bitstring)-1)/2))-nul)/2)
+    end
+    return(nul)
+end
+
+function rand_Clifford!(bitA,bitB,tableau,L)
+    gate_index = rand(1:11520)
+    single_cliff_unitary(logicals_t,phases_t,rand(1:24),bitA,tableau,L)
+    single_cliff_unitary(logicals_t,phases_t,rand(1:24),bitB,tableau,L)
+    if gate_index < 576
+    elseif gate_index <= 5760
+        two_cliff_unitary(logicals_t,phases_t,1,bitA,bitB,tableau,L)
+        single_cliff_unitary(logicals_t,phases_t,rand([1,8,9]),bitA,tableau,L)
+        single_cliff_unitary(logicals_t,phases_t,rand([1,8,9]),bitB,tableau,L)
+    elseif gate_index <= 10944
+        two_cliff_unitary(logicals_t,phases_t,3,bitA,bitB,tableau,L)
+        single_cliff_unitary(logicals_t,phases_t,rand([1,8,9]),bitA,tableau,L)
+        single_cliff_unitary(logicals_t,phases_t,rand([1,8,9]),bitB,tableau,L)
+    elseif gate_index <= 11520
+        two_cliff_unitary(logicals_t,phases_t,2,bitA,bitB,tableau,L)
+    end
+end
+
+function layer_t_gate_z(cutoff)
+    for q=1:length(t_loc)
+        if t_loc[q] == 1
+            t_gate!(tableau,logicals_t,phases_t,q)
+            compression!(cutoff)
+        elseif t_loc[q] == 2
+            single_cliff_unitary(logicals_t,phases_t,25,q,tableau,L)
+        elseif t_loc[q] == 3
+            single_cliff_unitary(logicals_t,phases_t,25,q,tableau,L)
+            t_gate!(tableau,logicals_t,phases_t,q)
+            compression!(cutoff)
+        elseif t_loc[q] == 4
+            single_cliff_unitary(logicals_t,phases_t,4,q,tableau,L)
+        elseif t_loc[q] == 5
+            single_cliff_unitary(logicals_t,phases_t,4,q,tableau,L)
+            t_gate!(tableau,logicals_t,phases_t,q)
+            compression!(cutoff)
+        elseif t_loc[q] == 6
+            single_cliff_unitary(logicals_t,phases_t,4,q,tableau,L)
+            single_cliff_unitary(logicals_t,phases_t,25,q,tableau,L)
+        elseif t_loc[q] == 7
+            single_cliff_unitary(logicals_t,phases_t,4,q,tableau,L)
+            single_cliff_unitary(logicals_t,phases_t,25,q,tableau,L)
+            t_gate!(tableau,logicals_t,phases_t,q)
+            compression!(cutoff)
+        elseif t_loc[q] == 8
+        end
+    end
+end
+
+function logical_compression!(phases,logicals)
+    @assert length(phases) == size(logicals, 1) "rows of logicals ≠ length of phases"
+    sums   = Dict{Tuple, eltype(phases)}()
+    order  = Tuple[]
+    for (row_idx, row) in enumerate(eachrow(logicals))
+        key = Tuple(row)
+        if haskey(sums, key)
+            sums[key] += phases[row_idx]
+        else
+            sums[key]  = phases[row_idx]
+            push!(order, key)
+        end
+    end
+    m                = length(order)
+    new_logicals     = similar(logicals, m, size(logicals,2))
+    new_phases       = similar(phases, m)
+    for (out_idx, key) in enumerate(order)
+        new_logicals[out_idx, :] .= key
+        new_phases[out_idx]       = sums[key]
+    end
+    return new_phases, new_logicals
+end
+
+function compression!(phases_t,logicals_t,L,r,cutoff)
+    indices = [i for i=1:size(phases_t)[1] if norm(phases_t[i])*2^(L-r) < cutoff]
+    phases_t = phases_t[setdiff(1:size(phases_t,1),indices),:]
+    logicals_t = logicals_t[setdiff(1:size(logicals_t,1),indices),:]
+    return([phases_t,logicals_t])
+end
+
+function layer(cutoff,phases_t,logicals_t,r,tableau,p_gate,p_meas,p_x_meas,L)
+    for i=1:1
+        prob = rand()
+        if prob < p_gate
+            qloc = Int64.(sort(gen_rand_2(L)))
+            phases_t, logicals_t = two_cliff_unitary(logicals_t,phases_t,4,qloc[1],qloc[2],tableau,L)
+        end
+        prob = rand()
+        if prob < p_meas
+            q = rand(1:L)
+            prob = rand()
+            if prob < p_x_meas
+                phases_t, logicals_t, r, outcome = measure_tableau!(phases_t,logicals_t,r,tableau,transpose(gen_single_locx_bs(q,L)),cutoff,L)
+            else
+                phases_t, logicals_t, r, outcome = measure_tableau!(phases_t,logicals_t,r,tableau,transpose(gen_single_locz_bs(q,L)),cutoff,L)
+                if outcome == Bool.(0)
+                    phases_t, logicals_t = single_cliff_unitary(logicals_t,phases_t,13,q,tableau,L)
+                elseif outcome == Bool.(1)
+                    phases_t, logicals_t = single_cliff_unitary(logicals_t,phases_t,14,q,tableau,L)
+                end
+            end
+        end
+    end
+    return(phases_t,logicals_t,r)
+end
+
+function layer_t_gate(phases_t,logicals_t,tableau,r,cutoff,p_t,L)
+    p = rand()
+    if p<p_t
+        i = rand(1:L)
+        phases_t,logicals_t,r = t_gate!(tableau,logicals_t,phases_t,r,i,L)
+        phases_t,logicals_t = compression!(phases_t,logicals_t,L,r,cutoff)
+    end
+    return(phases_t,logicals_t,r)
+end
+
+function gen_rand_2(L)
+    i = rand(1:L)
+    r = rand(1:L)
+    while i == r
+        r = rand(1:L)
+    end
+    return([i,r])
+end
+
+function measure_tableau!(phases_t,logicals_t,r,tableau,pauli,cutoff,L)
+    l = 0
+    s = 0
+    for q = 1:size(logicals_t)[1]
+        if check_c(pauli,logicals_t[q,:],L) != 0
+            l = q
+            break
+        end
+    end
+    if l==0
+        pup = prob_msm_case12(phases_t,logicals_t,tableau,r,pauli,L)
+        p = rand()
+        if p < Real(pup)
+            outcome = Bool.(0)
+            r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+        else
+            outcome = Bool.(1)
+            r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+        end
+    else
+        for q=1:r
+            if check_c(tableau[L+q,:],pauli,L) != 0
+                s = q
+                break
+            end
+        end
+        if s == 0
+            phases_t,logicals_t = update_bs_2(pauli,phases_t,logicals_t,l,L)
+            pup = prob_msm_case12(phases_t,logicals_t,tableau,r,pauli,L)
+            p = rand()
+            if p < Real(pup)
+                outcome = Bool.(0)
+                r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+            else
+                outcome = Bool.(1)
+                r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+            end
+        else
+            phases_t, logicals_t, r, pup = prob_msm_case3(pauli,phases_t,logicals_t,tableau,r,L)
+            p = rand()
+            if p < Real(pup)
+                outcome = Bool.(0)
+                r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+            else
+                outcome = Bool.(1)
+                r = Measure_Pauli_Outcome!(pauli,tableau,outcome,L,r)
+            end
+        end
+    end
+    phases_t, logicals_t = compression!(phases_t,logicals_t,L,r,cutoff)
+    phases_t = phases_t/norm_tr!(phases_t,logicals_t,tableau,r,L)
+    return(phases_t,logicals_t,r,outcome)
+end
+
+function Measure_Pauli_Outcome!(bitstring,tableau::BitMatrix,outcome,L::Int,r::Int)
+    p = 0
+    jack = copy(r)
+    for g in (L+1):L+r
+        if check_c(tableau[g,1:2*L],bitstring,L) == 2
+            p = g
+            break
+        end
+    end
+    if p > 0
+        for g in 1:2*L
+            if check_c(tableau[g,1:2*L],bitstring,L) == 2 && p != g
+                rowsum!(g,p,tableau,L)
+            end
+        end
+        tableau[p-L,:] = tableau[p,:]
+        tableau[p,1:2*L] = bitstring
+        tableau[p,2*L+1] = outcome
+    else
+        m = 0
+        indices = vcat([i for i in range(r+1,L)],[i for i in range(L+r+1,2*L)])
+        for g=1:length(indices)
+            if check_c(tableau[indices[g],1:2*L],bitstring,L) == 2
+                m = indices[g]
+                break
+            end
+        end
+        if m > 0
+            if m < L + 1
+                m_bar = m + L
+            else
+                m_bar = m - L
+            end
+            indices2 = vcat([i for i in range(1,r)],indices)
+            for g in 1:length(indices2)
+                if check_c(tableau[indices2[g],1:2*L],bitstring,L) == 2 && m != indices2[g] && m_bar != indices2[g]
+                    rowsum!(indices2[g],m,tableau,L)
+                end
+            end
+            tableau[m_bar,:] = tableau[m,:]
+            tableau[m,1:2*L] = bitstring
+            tableau[m,2*L+1] = outcome
+            swap_rows!(tableau,L+r+1,m)
+            if [m_bar,m] != [L+r+1,r+1]
+                swap_rows!(tableau,r+1,m_bar)
+            end
+            r = r + 1
+        else
+            tableau[2*L+1,:] .= 0
+            for g=1:L
+                if check_c(tableau[g,1:2*L],bitstring,L) == 2
+                    rowsum!(2*L+1,g+L,tableau,L)
+                end
+            end
+            if tableau[2*L+1,2*L+1] != outcome
+                return("nuthing")
+            end
+        end
+    end
+    return(r)
+end
+
+function compute_logno(iterationz,prob_meas,px_meas,prob_t,beta,prob_gate,cutoff,len,dist,filename)
+    timestep = 2*len^2
+    p_x_meas = px_meas
+    iterations = iterationz
+    L = len
+    p_meas = prob_meas
+    p_t = prob_t/L^(beta-1)
+    p_gate = prob_gate
+    if dist == true
+        real_phase_dist = []
+        global real_phase_dist
+    end
+    l_store = zeros(Float64,iterationz)
+    time_store = zeros(Float64,iterationz)
+    for k=1:iterations
+        ts = 0
+        logicals_t = Bool.(zeros(Float64,1,2*L))
+        phases_t = [1 + 0.0*im]
+        tab_dim = 2*L+1
+        tableau = BitMatrix(undef, tab_dim, tab_dim)
+        r = L
+        state0x!(tableau,L)
+        msm_step = 0
+        outcomes_store = []
+        probabilities_store = []
+        harringer = 0
+        ts = 0
+        alph = 1
+        qubits = [i for i=1:L]
+        t_g = zeros(Float64,timestep,L)
+        ts = 0
+        msm_loc = zeros(Float64,timestep,L)
+        msm_outcomes = Matrix(undef,timestep,L)
+        net_gates = []
+        t0 = now()
+        for q=1:timestep
+            push!(net_gates,[])
+        end
+        nspins = L
+        rar = 0
+        tableauc = copy(tableau)
+        temper3 = [i for i=1:L]
+        ts = 0
+        if p_x_meas > 0
+            for i=1:Int64(timestep)
+                ts = ts + 1
+                phases_t,logicals_t,r = layer(cutoff,phases_t,logicals_t,r,tableau,p_gate,p_meas,p_x_meas,L)
+                phases_t,logicals_t,r = layer_t_gate(phases_t,logicals_t,tableau,r,cutoff,p_t,L)
+                t2 = now()
+                if parse(Int64,string(t2 - t1)[1:end-13])  > 7.02e+7
+                    writedlm(string(filename,"Reyni1flop"),"exit!", ", ")
+                    return("exit!")
+                end
+            end
+        end
+        l_store[k] = length(phases_t)
+        t2 = now()
+        elapsed_str = string(t2 - t0)
+        if length(elapsed_str) > 13
+            time_store[k] = parse(Int64, elapsed_str[1:end-13])
+        else
+            time_store[k] = 0
+        end
+        if dist == true
+            for i=1:length(phases_t)
+                push!(real_phase_dist,real(phases_t[i]))
+            end
+        end
+        writedlm(string(filename,"_its=",k,"_norm_pxm=",p_x_meas,"pm=",p_meas,"pt=",prob_t,"cutoff=",cutoff,"beta=",beta,"_log_no_","L=",L),real.(l_store[k]),", ")
+        writedlm(string(filename,"_its=",k,"_norm_pxm=",p_x_meas,"pm=",p_meas,"pt=",prob_t,"cutoff=",cutoff,"beta=",beta,"_time_scale_","L=",L),real.(time_store[k]),", ")
+    end
+end
