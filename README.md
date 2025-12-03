@@ -1,0 +1,1 @@
+A collection of simulators for low-magic quantum circuits based on Low-Rank Stabilizer Decomposition (LRSD). Includes tools for Clifford+T evolution, monitored dynamics, logical tracking, and benchmarking spatial/temporal complexity. More details in https://arxiv.org/pdf/2508.20252.
