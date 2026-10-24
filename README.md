@@ -1,6 +1,70 @@
 # Low-Rank Stabilizer State Simulator
 
-Simulation kernels and reproducible example drivers for [*Classical Simulations of Low Magic Quantum Dynamics*](https://arxiv.org/abs/2508.20252). The [visual code guide](scripts/README.md) shows the published figures beside their simulation drivers. The [figure map](paper/FIGURE_MAP.md) names the observable, circuit, source file, and present coverage for every figure. It distinguishes an executable method from reproduction of the published large-scale data.
+[![Tests](https://github.com/ka784-jpg/Low-Rank-Stabilizer-State-Simulator/actions/workflows/julia-tests.yml/badge.svg)](https://github.com/ka784-jpg/Low-Rank-Stabilizer-State-Simulator/actions/workflows/julia-tests.yml)
+[![Code license: MIT](https://img.shields.io/badge/code_license-MIT-blue.svg)](LICENSE)
+
+Julia simulation kernels and example drivers for low-magic quantum dynamics.
+The repository includes low-rank stabilizer-decomposition (LRSD) evolution,
+Bell-sampling stabilizer-nullity calculations, and a small-system dense
+reference for ancilla purification, with tests and published figure previews.
+
+**Paper:** Kemal Aziz, Haining Pan, Michael J. Gullans, and J. H. Pixley,
+[*Classical Simulations of Low Magic Quantum Dynamics*](https://arxiv.org/abs/2508.20252).
+Figure references below follow [arXiv version 3](https://arxiv.org/abs/2508.20252v3).
+
+[Run an example](#quickstart) | [Methods](#methods) |
+[Paper figures and drivers](scripts/README.md) |
+[Reproducibility](paper/REPRODUCIBILITY.md) | [Figure-to-code map](paper/FIGURE_MAP.md)
+
+![Published Figure 4: LRSD representation size versus system size, truncation cutoff, and T-gate rate in the X-measurement model.](paper/figures/fig04.png)
+
+**What the calculation probes.** How large a classical representation is
+needed as a monitored circuit accumulates non-Clifford resources? Figure 4
+compares the LRSD representation size across system sizes, truncation
+thresholds, and T-gate rates. It shows the paper's results, not output from
+the small example below. [Panel context and simulation driver](scripts/README.md#lrsd-truncation-and-cost)
+and [figure attribution](paper/figures/README.md).
+
+## Explore the results
+
+| LRSD truncation and cost | Ancilla purification | Bell sampling and magic |
+| --- | --- | --- |
+| [![Published Figure 3: truncation diagnostics.](paper/figures/fig03.png)](scripts/README.md#lrsd-truncation-and-cost) | [![Published Figure 5: purification transition.](paper/figures/fig05.png)](scripts/README.md#ancilla-purification) | [![Published Figure 6: magic scaling.](paper/figures/fig06.png)](scripts/README.md#bell-sampling-and-magic) |
+| [Figures 3, 4, 17 and driver](scripts/README.md#lrsd-truncation-and-cost) | [Figures 5, 14-16 and driver](scripts/README.md#ancilla-purification) | [Figures 6, 8 and driver](scripts/README.md#bell-sampling-and-magic) |
+
+The [complete figure map](paper/FIGURE_MAP.md) identifies which calculations
+are executable and which still lack an implementation or production data.
+The dense ancilla reference is limited to small systems; it is not the
+scalable LRSD engine used for the paper's large-system purification results.
+
+## Quickstart
+
+Install [Julia](https://julialang.org/downloads/) (tested with Julia 1.12),
+then run these commands from a terminal:
+
+```sh
+git clone https://github.com/ka784-jpg/Low-Rank-Stabilizer-State-Simulator.git
+cd Low-Rank-Stabilizer-State-Simulator
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. scripts/fig34_lrsd.jl --L 4,6 --pm 0.6,0.8 --basis X --eta 1 --beta 1 --cutoff 1e-15 --trajectories 4 --seed 2026 --out outputs/quickstart.csv
+```
+
+This small LRSD run writes 16 trajectory rows with the parameters, seed,
+logical-term count, representation entries, and runtime. It samples the
+observable in Figure 4(a), but does not recreate that figure's large-system
+statistics. The first Julia run includes compilation.
+
+To plot the CSV with Python and Matplotlib:
+
+```sh
+python -m pip install matplotlib
+python scripts/plot_examples.py fig4a outputs/quickstart.csv outputs/quickstart.png
+```
+
+Use a fresh output filename to retain previous results: the existing drivers
+can overwrite their CSV destination. No cluster, scheduler, or credentials are
+needed. [More examples](#small-executable-examples) cover truncation sweeps,
+purification, and nullity.
 
 ## Methods
 
