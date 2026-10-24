@@ -1,6 +1,6 @@
 # Low-Rank Stabilizer State Simulator
 
-Simulation kernels and reproducible example drivers for [*Classical Simulations of Low Magic Quantum Dynamics*](https://arxiv.org/abs/2508.20252). The [figure map](paper/FIGURE_MAP.md) names the observable, circuit, source file, command, and present coverage for every figure. It distinguishes an executable method from reproduction of the published large-scale data.
+Simulation kernels and reproducible example drivers for [*Classical Simulations of Low Magic Quantum Dynamics*](https://arxiv.org/abs/2508.20252). The [visual code guide](scripts/README.md) shows the published figures beside their simulation drivers. The [figure map](paper/FIGURE_MAP.md) names the observable, circuit, source file, and present coverage for every figure. It distinguishes an executable method from reproduction of the published large-scale data.
 
 ## Methods
 
@@ -50,3 +50,7 @@ python scripts/plot_examples.py fig6c outputs/fig6.csv outputs/fig6c.png
 For Fig. 4(b), vary `--cutoff` at fixed `--pm` and `--eta` and plot with `fig4b`. For Fig. 4(c), vary `--eta` at fixed `--pm` and `--cutoff` and plot with `fig4c`. The Fig. 17 trajectory histogram uses `fig17` on X-basis LRSD output. The Fig. 6(c) helper plots `M/log(L)` from the same samples as Fig. 6(b).
 
 CSV output contains the parameter values and random seed for each parameter point. These are **new simulations**; published raw data, uncertainty analyses, phase-boundary fits, and high-statistics figures are not bundled. The figure map also records important algorithms not yet available here.
+
+## License
+
+Repository-authored code and documentation are released under the [MIT License](LICENSE). The [published figure previews](paper/figures/README.md) retain the paper's CC BY 4.0 license, not MIT. Julia and Python dependencies are obtained separately and retain their own licenses; no third-party source is vendored in this repository.
