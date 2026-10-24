@@ -1322,5 +1322,8 @@ function runy(L, pt, pm, bet, iterations_total, filename)
         end
         magic_store[q] = stabilizer_nullity(tempm, L)
     end
-    writedlm(string(filename, "_magic_pt=", pt, "_pm=", pm, "_pu=", 0.5, "_beta=", bet), magic_store, ", ")
+    if !isempty(filename)
+        writedlm(string(filename, "_magic_pt=", pt, "_pm=", pm, "_pu=", 0.5, "_beta=", bet), magic_store, ", ")
+    end
+    return magic_store
 end

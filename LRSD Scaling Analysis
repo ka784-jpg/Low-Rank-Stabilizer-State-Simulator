@@ -1,5 +1,4 @@
 using LinearAlgebra
-using Kronecker
 using Random
 using CSV, DelimitedFiles
 using Dates
@@ -1219,7 +1218,7 @@ end
 
 function gen_single_randz_bs()
     k = rand(L+1:2*L)
-    temp = Bool.([0 for i in range(1,2*L)]))
+    temp = Bool.([0 for i in range(1,2*L)])
     temp[k] = Bool.(1)
     return(temp)
 end
@@ -2007,7 +2006,7 @@ function compute_logno(iterationz,prob_meas,px_meas,prob_t,beta,prob_gate,cutoff
         msm_loc = zeros(Float64,timestep,L)
         msm_outcomes = Matrix(undef,timestep,L)
         net_gates = []
-        t0 = now()
+        t0 = time_ns()
         for q=1:timestep
             push!(net_gates,[])
         end
@@ -2016,32 +2015,23 @@ function compute_logno(iterationz,prob_meas,px_meas,prob_t,beta,prob_gate,cutoff
         tableauc = copy(tableau)
         temper3 = [i for i=1:L]
         ts = 0
-        if p_x_meas > 0
-            for i=1:Int64(timestep)
-                ts = ts + 1
-                phases_t,logicals_t,r = layer(cutoff,phases_t,logicals_t,r,tableau,p_gate,p_meas,p_x_meas,L)
-                phases_t,logicals_t,r = layer_t_gate(phases_t,logicals_t,tableau,r,cutoff,p_t,L)
-                t2 = now()
-                if parse(Int64,string(t2 - t1)[1:end-13])  > 7.02e+7
-                    writedlm(string(filename,"Reyni1flop"),"exit!", ", ")
-                    return("exit!")
-                end
-            end
+        for i=1:Int64(timestep)
+            ts = ts + 1
+            # T and CZ commute, so this ordering implements CZ, T, measurement.
+            phases_t,logicals_t,r = layer_t_gate(phases_t,logicals_t,tableau,r,cutoff,p_t,L)
+            phases_t,logicals_t,r = layer(cutoff,phases_t,logicals_t,r,tableau,p_gate,p_meas,p_x_meas,L)
         end
         l_store[k] = length(phases_t)
-        t2 = now()
-        elapsed_str = string(t2 - t0)
-        if length(elapsed_str) > 13
-            time_store[k] = parse(Int64, elapsed_str[1:end-13])
-        else
-            time_store[k] = 0
-        end
+        time_store[k] = (time_ns() - t0) * 1e-9
         if dist == true
             for i=1:length(phases_t)
                 push!(real_phase_dist,real(phases_t[i]))
             end
         end
-        writedlm(string(filename,"_its=",k,"_norm_pxm=",p_x_meas,"pm=",p_meas,"pt=",prob_t,"cutoff=",cutoff,"beta=",beta,"_log_no_","L=",L),real.(l_store[k]),", ")
-        writedlm(string(filename,"_its=",k,"_norm_pxm=",p_x_meas,"pm=",p_meas,"pt=",prob_t,"cutoff=",cutoff,"beta=",beta,"_time_scale_","L=",L),real.(time_store[k]),", ")
     end
+    if !isempty(filename)
+        writedlm(string(filename,"_log_no_L=",L,".csv"),l_store,",")
+        writedlm(string(filename,"_time_seconds_L=",L,".csv"),time_store,",")
+    end
+    return (logical_terms=l_store, seconds=time_store)
 end
